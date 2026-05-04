@@ -53,7 +53,7 @@
 1.  **Clone the Repository:**
 
     ```bash
-    git clone https://github.com/kabirkedia/airlab.git
+    git clone https://github.com/strapsai/airlab.git
     ```
 
 2.  **Run the install script:**
