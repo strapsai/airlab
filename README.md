@@ -18,6 +18,7 @@
     *   [Sync](#sync)
     *   [Launch](#launch)
     *   [Docker Commands](#docker-commands)
+    *   [ros2](#ros2)
     *   [Version Control Commands](#vcs-commands)
     *   [cd](#cd)
 *   [Workspace Structure](#workspace-structure)
@@ -581,6 +582,49 @@ airlab docker-up [OPTIONS]
 *   **Environment**: Requires `$DOCKER_BUILD_PATH` and `$DOCKER_UP_PATH` to be set.
 
 Detailed documentation is available [here](/usr/local/bin/docs/docker-commands.md).
+
+---
+
+### ros2
+
+Pass-through wrapper that runs an arbitrary `ros2` sub-command inside a transient Docker container, then stops and removes the container when the command exits (via `docker run --rm`).
+
+The current working directory is bind-mounted into the container at the same path with `-w $PWD`, so relative paths and absolute paths under `$PWD` resolve correctly. `--network=host` is set so DDS discovery reaches nodes on the host.
+
+#### Usage
+
+```bash
+airlab ros2 [--image=<image>] <ros2-command> [args...]
+```
+
+#### Wrapper Options
+
+Wrapper-specific flags must appear before the `ros2` sub-command. Once a non-wrapper token is seen, every remaining argument is passed through to `ros2` inside the container — so `airlab ros2 bag --help` forwards `--help` to `ros2 bag`, not to the wrapper.
+
+*   `--image=<image>`: Use a specific Docker image. Default: auto-detect a local image whose tag contains `ros2`. May also be set via the `AIRLAB_ROS2_IMAGE` environment variable.
+*   `--help`: Show the wrapper's help message.
+
+#### Quick Examples
+
+```bash
+airlab ros2 bag info ./recording                # inspect a bag in the current dir
+airlab ros2 topic list                          # list topics on the host
+airlab ros2 --image=dtc/dtc:x86-03-ros2 \
+    run my_pkg my_node                          # pin a specific image
+AIRLAB_ROS2_IMAGE=dtc/dtc:x86-03-ros2 \
+    airlab ros2 doctor                          # same, via env var
+```
+
+#### Notes
+
+*   If multiple local images match `ros2`, the wrapper refuses to guess and asks you to pick one with `--image=` or `AIRLAB_ROS2_IMAGE`.
+*   A TTY is allocated only when both stdin and stdout are real terminals, so piping (e.g. `airlab ros2 topic list | grep foo`) works.
+*   Files created by `ros2` inside the container (e.g. `ros2 bag record` output) will be owned by the container's default user (typically `root`), since no `--user` mapping is applied.
+
+#### Dependencies
+
+*   `docker`
+*   A local Docker image whose tag contains `ros2` (or one specified with `--image=` / `AIRLAB_ROS2_IMAGE`).
 
 ---
 

@@ -171,7 +171,7 @@ _airlab_completions() {
 
     # Top-level commands
     local commands="greet setup ssh auth ping sync launch set_env set_hosts \
-docker-build docker-up docker-join docker-list vcs cd --help --version"
+docker-build docker-up docker-join docker-list ros2 vcs cd --help --version"
 
     # Position 1: complete the sub-command
     if [[ $cword -eq 1 ]]; then
@@ -277,6 +277,17 @@ docker-build docker-up docker-join docker-list vcs cd --help --version"
         docker-list)
             COMPREPLY=( $(compgen -W "--system= --images --password --help" -- "$cur") )
             ;;
+
+        ros2)
+            # Only complete wrapper flags when they appear at the very head
+            # of the argument list (cword 2). After that, args are passed
+            # through to ros2 inside the container — we don't try to
+            # introspect ros2 sub-commands from the host.
+            if [[ $cword -eq 2 ]]; then
+                COMPREPLY=( $(compgen -W "--image= --help" -- "$cur") )
+            fi
+            ;;
+
 
         cd)
             _airlab_complete_cd

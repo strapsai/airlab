@@ -187,6 +187,7 @@ _airlab() {
         'docker-up:Start Docker containers using docker-compose'
         'docker-join:Attach to a running Docker container'
         'docker-list:List active Docker containers'
+        'ros2:Run a ros2 command inside a transient Docker container'
         'vcs:Manage multiple repositories with common git functions'
         'cd:Change directory relative to \$AIRLAB_PATH'
     )
@@ -326,6 +327,18 @@ _airlab() {
                         '--password[use password auth]' \
                         '--help[show help]'
                     ;;
+
+                ros2)
+                    # Only offer wrapper flags at the head of the args.
+                    # Anything past that is passed through to ros2 in the
+                    # container, which we can't introspect from the host.
+                    if (( CURRENT == 1 )); then
+                        _arguments -s \
+                            '--image=[Docker image to run]:image:' \
+                            '--help[show help]'
+                    fi
+                    ;;
+
 
                 cd)
                     _airlab_complete_cd
