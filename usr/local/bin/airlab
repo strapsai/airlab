@@ -26,6 +26,7 @@ function show_usage() {
     echo "  auth                          Install SSH public key on a remote robot for password-less access."
     echo "  set_env                       Set environment variables on local or remote machine."
     echo "  set_hosts                     Set hostnames for robots or local environment."
+    echo "  reid                          Run reid stack Makefile commands."
     echo "  cd                            Change directory relative to \$AIRLAB_PATH (shell function)."
     echo "  --help                        Show this help message."
     echo "  --version                     Show the version of the airlab command."
@@ -113,6 +114,10 @@ case "$COMMAND" in
     set_hosts)
         # Set hosts file
         /usr/local/bin/cmds/set_hosts "$@"
+        ;;
+    reid)
+        # Run reid stack Makefile commands
+        /usr/local/bin/cmds/reid "$@"
         ;;
     --help)
         show_usage

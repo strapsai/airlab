@@ -1,0 +1,86 @@
+#!/bin/bash
+set -euo pipefail
+
+show_help() {
+    cat <<EOF
+Usage: airlab reid [make-target-or-db-command] [make variables...]
+
+Run the reid stack Makefile from $AIRLAB_PATH/launch/reid.
+
+Examples:
+  airlab reid up
+  airlab reid down
+  airlab reid reset NAME=my_run
+  airlab reid phoenix
+  airlab reid db save my_run
+  airlab reid db save-empty my_run
+  airlab reid db empty --nosave
+  airlab reid db load my_run
+  airlab reid help
+
+If no arguments are provided, this runs `make help`.
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    show_help
+    exit 0
+fi
+
+candidates=()
+if [[ -n "${AIRLAB_REID_DIR:-}" ]]; then
+    candidates+=("$AIRLAB_REID_DIR")
+fi
+if [[ -n "${AIRLAB_PATH:-}" ]]; then
+    candidates+=("$AIRLAB_PATH/launch/reid")
+fi
+candidates+=("$HOME/airlab_ws/launch/reid")
+candidates+=("/home/dtc/airlab_ws/launch/reid")
+
+# Also walk upward from the current directory so this works from inside a
+# mounted workspace even when AIRLAB_PATH is not exported.
+cur="$PWD"
+while [[ "$cur" != "/" ]]; do
+    candidates+=("$cur/launch/reid")
+    if [[ "$(basename "$cur")" == "reid" && "$(basename "$(dirname "$cur")")" == "launch" ]]; then
+        candidates+=("$cur")
+    fi
+    cur="$(dirname "$cur")"
+done
+
+reid_dir=""
+for candidate in "${candidates[@]}"; do
+    if [[ -f "$candidate/Makefile" ]]; then
+        reid_dir="$candidate"
+        break
+    fi
+done
+
+if [[ -z "$reid_dir" ]]; then
+    echo "Error: could not find reid Makefile." >&2
+    echo "Checked AIRLAB_REID_DIR, AIRLAB_PATH/launch/reid, ~/airlab_ws/launch/reid, /home/dtc/airlab_ws/launch/reid, and parent workspaces." >&2
+    echo "Set AIRLAB_PATH to your airlab_ws or AIRLAB_REID_DIR to the reid launch directory." >&2
+    exit 1
+fi
+
+if ! command -v make >/dev/null 2>&1; then
+    echo "Error: make is not installed or not on PATH." >&2
+    exit 1
+fi
+
+if [[ $# -eq 0 ]]; then
+    set -- help
+fi
+
+# GNU Make consumes unknown --flags before the Makefile can see them. Keep the
+# user-facing airlab spelling friendly and translate it to the Make-safe token.
+args=()
+for arg in "$@"; do
+    case "$arg" in
+        --nosave|--no-save) args+=(nosave) ;;
+        *) args+=("$arg") ;;
+    esac
+done
+
+cd "$reid_dir"
+exec make "${args[@]}"
