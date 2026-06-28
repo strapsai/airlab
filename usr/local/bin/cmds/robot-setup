@@ -470,11 +470,26 @@ setup_remote() {
     local keep_env="${9:-false}"
     local no_reboot="${10:-false}"
 
-    # Validate robot configuration
-    source $USER_HOME/.bashrc
+    # Resolve the operator's AIRLAB_PATH. We source ~/.bashrc, but the stock Ubuntu
+    # ~/.bashrc returns early in a NON-interactive shell (the `case $- in *i*) ;; *) return`
+    # guard) — which is exactly what we are — so it never reaches the `source .../airlab.env`
+    # line and AIRLAB_PATH comes back empty (then "/robot/robot.conf" not found). Recover it:
+    # honor an AIRLAB_PATH already in the environment (e.g. `sudo -E`/`sudo AIRLAB_PATH=...`),
+    # else source the airlab.env that ~/.bashrc points at, else fall back to the default.
+    source "$USER_HOME/.bashrc" 2>/dev/null
+    if [[ -z "${AIRLAB_PATH:-}" ]]; then
+        local _env_file
+        _env_file=$(grep -m1 -oE 'source +[^ ;]*airlab\.env' "$USER_HOME/.bashrc" 2>/dev/null | sed -E 's/^source +//')
+        if [[ -n "$_env_file" && -f "$_env_file" ]]; then
+            set -o allexport; source "$_env_file"; set +o allexport
+        elif [[ -f "$DEFAULT_AIRLAB_PATH/airlab.env" ]]; then
+            set -o allexport; source "$DEFAULT_AIRLAB_PATH/airlab.env"; set +o allexport
+        fi
+    fi
+    : "${AIRLAB_PATH:=$DEFAULT_AIRLAB_PATH}"
     local remote_path=$AIRLAB_PATH
     local robots_conf="$remote_path/robot/robot.conf"
-    [[ ! -f "$robots_conf" ]] && error_exit "Robot configuration not found: $robots_conf"
+    [[ ! -f "$robots_conf" ]] && error_exit "Robot configuration not found: $robots_conf (resolved AIRLAB_PATH='$remote_path')"
 
     # Resolve robot SSH address (registry-aware; robot.conf fallback), then split into a bare
     # user@host + SSH_PORT so every ssh/scp/rsync below honors a port-bearing
