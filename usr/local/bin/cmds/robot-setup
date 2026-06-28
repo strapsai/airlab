@@ -664,12 +664,23 @@ setup_remote() {
         fi
         remote_exec "$robot_ssh_address" "echo '$robot_password' | sudo -S chmod a+x -R /tmp/airlab-main" "$robot_password"
 
-        # Run install.sh on the robot, forwarding --offline (skips apt/pip, reuses venv).
+        # Run install.sh on the robot NON-INTERACTIVELY (we drive it over ssh -tt with no
+        # operator at the keyboard, so any prompt would hang). install.sh prompts only about
+        # the venv when one already exists, so pass an explicit venv mode:
+        #   offline -> --offline   : reuse the existing venv (and skip apt/pip; no network)
+        #   online  -> --override-venv : (re)create the managed ~/VENVs/airlab venv; works
+        #              whether or not it already exists, and never prompts. (Without this, a
+        #              re-provision of a robot that already has the venv blocks forever on
+        #              install.sh's "Remove and re-create it? [y/N]" prompt.)
         # ssh -tt: pty makes sudo's timestamp cache survive into install.sh's internal sudo
         # calls. install.sh must run as user (not root) so its ~/VENVs and ~/.bashrc edits
         # use the right $HOME.
         local install_flags=""
-        [ "$offline" = true ] && install_flags=" --offline"
+        if [ "$offline" = true ]; then
+            install_flags=" --offline"
+        else
+            install_flags=" --override-venv"
+        fi
         "${SSHPASS_PREFIX[@]}" ssh -tt -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" "echo '$robot_password' | sudo -S echo HERE && bash /tmp/airlab-main/install.sh${install_flags}" \
             || error_exit "Failed to run install.sh on $robot_ssh_address"
 
