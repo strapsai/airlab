@@ -56,6 +56,25 @@ airlab setup robot1 --path=/desired/installation/path --force
 - `--path` : Specify the custom installation path. If not provided, defaults to ~/airlab_ws.
 - `--force`: Overwrite existing installations.
 - `--password`: Skip key-based SSH authentication and prompt for a password directly.
+- `--airlab-src=<dir>`: Install the airlab **tool** from a LOCAL source tree instead of downloading
+  it from GitHub. Works online too; **required** with `--offline`.
+- `--offline`: No-network remote install (for **in-field re-provisioning** of robots with no
+  Internet). Uses `--airlab-src` for the tool, rsyncs the **airlab_ws repository content** from the
+  local working tree (no `git clone`, and **never** the `*_ws` ROS workspace folders — those are
+  delivered separately by `airlab sync`), and runs the robot's `install.sh --offline` (skips
+  apt/pip, reuses the existing venv). Implies `--keep-env`. Assumes the robot already went through
+  an online initial setup (apt deps + venv in place).
+- `-y`, `--non-interactive`: Answer all prompts non-interactively (proceed / yes). Use for
+  automation (e.g. the Ansible robot plays).
+- `--keep-env`: Preserve the robot's existing `airlab.env` **and** the operator's local
+  `robot/robot_info.yaml` (no regeneration, no clobber). Implied by `--offline`.
+- `--no-reboot`: Never prompt for or perform the post-setup reboot.
+
+##### In-field offline example
+```bash
+sudo airlab setup robot1 --offline --airlab-src=/home/dtc/Documents/yaoyu/airlab \
+    --force -y --keep-env --no-reboot
+```
 
 When running airlab setup <system_name>, the command:
 - Validates the robot configuration

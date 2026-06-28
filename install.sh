@@ -3,8 +3,10 @@
 set -e  # Exit immediately if a command exits with a non-zero status
 
 # Parse command line arguments.
-VENV_MODE=""  # "", "override", "no-override", or "skip"
+VENV_MODE=""  # "", "override", "no-override", "skip", or "reuse"
 SKIP_APT=false
+SKIP_PIP=false
+OFFLINE=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --override-venv)
@@ -23,13 +25,33 @@ while [[ $# -gt 0 ]]; do
             SKIP_APT=true
             shift
             ;;
+        --skip-pip)
+            SKIP_PIP=true
+            shift
+            ;;
+        --offline)
+            # No-network install: skip apt + pip, and reuse the existing venv
+            # (created during a prior online setup) non-interactively. Used by
+            # in-field robot re-provisioning where the box has no Internet.
+            OFFLINE=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--override-venv | --no-override-venv | --skip-venv] [--skip-apt]"
+            echo "Usage: $0 [--override-venv | --no-override-venv | --skip-venv | --offline] [--skip-apt] [--skip-pip]"
             exit 1
             ;;
     esac
 done
+
+# --offline is a convenience that cascades into the no-network sub-flags.
+if [ "$OFFLINE" = true ]; then
+    SKIP_APT=true
+    SKIP_PIP=true
+    # Reuse the existing venv as-is (no recreate, no pip) unless the caller
+    # explicitly picked another venv mode.
+    [ -z "$VENV_MODE" ] && VENV_MODE="reuse"
+fi
 
 # Get the directory of the current script.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -58,6 +80,17 @@ if [ "$VENV_MODE" = "skip" ]; then
     fi
     echo "Using current virtual environment: $VIRTUAL_ENV"
     VENV_ACTION="skip"
+elif [ "$VENV_MODE" = "reuse" ]; then
+    # Reuse the existing venv non-interactively (offline installs). The venv MUST
+    # already exist — an offline box can't create one (pip needs the network).
+    if [ ! -d "$VENV_DIR/airlab" ]; then
+        echo "Error: --offline/--reuse-venv needs an existing venv at $VENV_DIR/airlab, but none was found."
+        echo "Run an online setup first so the venv (and its packages) are in place."
+        exit 1
+    fi
+    echo "Reusing existing virtual environment: $VENV_DIR/airlab"
+    source "$VENV_DIR/airlab/bin/activate"
+    VENV_ACTION="reuse"
 else
     mkdir -p "$VENV_DIR"
 
@@ -117,6 +150,9 @@ cd "$SCRIPT_DIR"
 DEP_ARGS=()
 if [ "$SKIP_APT" = true ]; then
     DEP_ARGS+=(--skip-apt)
+fi
+if [ "$SKIP_PIP" = true ]; then
+    DEP_ARGS+=(--skip-pip)
 fi
 bash install_dependencies_ubuntu24.sh "${DEP_ARGS[@]}"
 

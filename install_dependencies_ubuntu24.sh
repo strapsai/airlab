@@ -2,15 +2,22 @@
 
 # Parse command line arguments.
 SKIP_APT=false
+SKIP_PIP=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --skip-apt)
             SKIP_APT=true
             shift
             ;;
+        --skip-pip)
+            # Skip the pip installs below. Used by offline installs, where the
+            # venv (and its packages) already exist from a prior online setup.
+            SKIP_PIP=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--skip-apt]"
+            echo "Usage: $0 [--skip-apt] [--skip-pip]"
             exit 1
             ;;
     esac
@@ -40,6 +47,10 @@ else
 fi
 
 # With the Python venv.
-pip install pyyaml vcstool "setuptools<=81.0.0"
+if [ "$SKIP_PIP" = true ]; then
+    echo "Skipping pip install (--skip-pip)."
+else
+    pip install pyyaml vcstool "setuptools<=81.0.0"
+fi
 
 echo "Done."
