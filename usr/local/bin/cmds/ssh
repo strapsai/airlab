@@ -3,7 +3,7 @@
 # Exit on error, undefined variables, and pipe failures
 set -euo pipefail
 
-# Shared SSH-address resolution (supports --address via robots.yaml, robot.conf fallback)
+# Shared SSH-address resolution (supports --address via robots.yaml)
 source "$(dirname "$0")/_lib/resolve.sh"
 
 # Color codes for output
@@ -23,7 +23,7 @@ show_usage() {
     echo "  airlab ssh <robot_name> [options]"
     echo
     echo -e "${YELLOW}Arguments:${NC}"
-    echo "  <robot_name>              Name of the robot to ssh into (must be defined in robot.conf)"
+    echo "  <robot_name>              Name of the robot to ssh into (must be defined in robots.yaml)"
     echo
     echo -e "${YELLOW}Options:${NC}"
     echo "  --address <name>          Use a named network address from robots.yaml (e.g. internet, vpn)"
@@ -164,19 +164,12 @@ main() {
         shift
     done
 
-    # Check for robot configuration
-    ROBOT_CONF="$AIRLAB_PATH/robot/robot.conf"
-    if [[ ! -f "$ROBOT_CONF" ]]; then
-        log_error "Robot configuration file not found at '$ROBOT_CONF'"
-        exit 1
-    fi
-
     set +e
-    # Resolve the SSH address: prefer the target registry (robots.yaml via robots.py,
-    # which supports named --address); fall back to robot.conf for compatibility.
+    # Resolve the SSH address from the target registry (robots.yaml via robots.py),
+    # which supports named --address values (e.g. internet, vpn).
     ROBOT_SSH_ADDRESS=$(resolve_ssh_address "$ROBOT_NAME" "$ADDRESS")
     if [[ -z "$ROBOT_SSH_ADDRESS" ]]; then
-        log_error "Robot '$ROBOT_NAME'${ADDRESS:+ (address '$ADDRESS')} not found in robots.yaml or $ROBOT_CONF"
+        log_error "Robot '$ROBOT_NAME'${ADDRESS:+ (address '$ADDRESS')} not found in robots.yaml"
         exit 1
     fi
 
