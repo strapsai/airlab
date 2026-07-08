@@ -36,7 +36,7 @@ usr/share/airlab/alias-templates/
   alias.sh, alias.py              # Templates for "airlab a --new" (with @desc/@author/--help)
 etc/airlab/                       # Default config templates (copied to workspace on setup)
   airlab.zsh                      # Zsh shell function wrapper (sourced from ~/.zshrc)
-  robot/robot.conf                # Robot SSH address mappings (name=user@host)
+  robot/robots.yaml               # Robot registry: systems + network addresses (SSH resolution)
   robot/robot_info.yaml           # Robot metadata (YAML)
   version_control/repos.yaml      # Repository definitions for vcstool
 etc/bash_completion.d/
