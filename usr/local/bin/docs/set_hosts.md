@@ -1,7 +1,7 @@
 # set_hosts
 
 ## Overview
-The `airlab set_hosts` command updates `/etc/hosts` on a local or remote machine with hostname-to-IP mappings derived from `robot.conf`. This allows robot names to be used directly in commands like `ping mt001` or `ssh mt001` without needing to remember IP addresses.
+The `airlab set_hosts` command updates `/etc/hosts` on a local or remote machine with hostname-to-IP mappings derived from `robots.yaml`. This allows robot names to be used directly in commands like `ping mt001` or `ssh mt001` without needing to remember IP addresses.
 
 ## Syntax
 ```bash
@@ -9,7 +9,7 @@ airlab set_hosts <target> [options]
 ```
 
 ## Arguments
-- `<target>`: Either `local` (update the local machine) or a robot name from `robot.conf` (update the remote robot via SSH).
+- `<target>`: Either `local` (update the local machine) or a robot name from `robots.yaml` (update the remote robot via SSH).
 
 ## Options
 - `--password`: Skip key-based SSH authentication and prompt for a password directly (remote targets only).
@@ -18,13 +18,13 @@ airlab set_hosts <target> [options]
 ## How It Works
 
 ### Entry Generation
-The command reads all entries from `$AIRLAB_PATH/robot/robot.conf` (format: `name=user@ip`) and generates `/etc/hosts` lines:
+The command reads `$AIRLAB_PATH/robot/robots.yaml` and generates one `/etc/hosts` line per network address. The **default** address maps to the robot name; every **other** address maps to `<robot>-<address_name>`:
 ```
-10.223.1.99     mt001
-10.3.1.102      mt002
+10.3.1.50       g-uav-1
+10.3.1.60       g-uav-1-lab
 ```
 
-Entries using `ssh://` URIs (e.g., `ssh://user@host:port` for port-forwarded connections) are automatically skipped, since they share a single hostname with different ports and don't map to unique IPs. Skipped entries are logged for visibility.
+An address with no `ip` field is skipped by design (it resolves by hostname, not a static IP), as is any address whose composed name is not a valid hostname. Everything skipped is reported in a summary at the end, with the reason.
 
 ### Markers
 Entries are placed between fenced markers in `/etc/hosts`:
@@ -47,13 +47,13 @@ Before any modification, a timestamped backup of `/etc/hosts` is created:
 ### Conflict Detection
 Before writing, the command checks for conflicts between the new entries and existing `/etc/hosts` entries **outside** the airlab markers:
 - **Hostname conflict**: A robot name already appears in `/etc/hosts` mapped to a different IP.
-- **IP overlap**: An IP from `robot.conf` already appears in `/etc/hosts` mapped to a different hostname.
+- **IP overlap**: An IP from `robots.yaml` already appears in `/etc/hosts` mapped to a different hostname.
 
 If any conflicts are detected, the command warns and aborts without modifying the file.
 
 ### Remote Operation
 When targeting a remote robot, the command:
-1. Looks up the robot's SSH address from `robot.conf`.
+1. Looks up the robot's SSH address from `robots.yaml`.
 2. Authenticates via SSH (key-based first, falls back to password, or uses `--password` to skip key-based).
 3. Reads the remote `/etc/hosts`, performs conflict checks, creates a remote backup, and writes the updated file.
 
@@ -61,7 +61,7 @@ When targeting a remote robot, the command:
 
 ### Local
 ```bash
-# Update local /etc/hosts with all robots from robot.conf
+# Update local /etc/hosts with all robots from robots.yaml
 airlab set_hosts local
 ```
 
@@ -75,15 +75,15 @@ airlab set_hosts mt001 --password
 ```
 
 ## Configuration Files
-- **Robot config**: `$AIRLAB_PATH/robot/robot.conf` — source of hostname-to-IP mappings.
+- **Robot registry**: `$AIRLAB_PATH/robot/robots.yaml` — source of the addresses and IPs.
 
 ## Dependencies
 - `ssh`, `sshpass` — for remote operations
 - `sudo` — required to modify `/etc/hosts`
 
 ## Error Handling
-- Validates that `robot.conf` exists and contains entries.
-- Validates that the target robot exists in `robot.conf` (for remote targets).
+- Validates that `robots.yaml` exists and yields at least one usable entry.
+- Validates that the target robot exists in `robots.yaml` (for remote targets).
 - Checks for hostname/IP conflicts before writing.
 - Creates a backup before every modification.
 - Provides colored error/warning/info messages.
@@ -93,5 +93,5 @@ airlab set_hosts mt001 --password
 ### Common Issues
 1. "Permission denied": The command uses `sudo` to modify `/etc/hosts`. Ensure your user has `sudo` privileges.
 2. "Conflicts detected": Another entry in `/etc/hosts` (outside the airlab markers) uses the same hostname or IP. Resolve the conflict manually, then re-run.
-3. "Robot not found in robot.conf": Verify the robot name matches an entry in `$AIRLAB_PATH/robot/robot.conf`.
+3. "not found in robots.yaml": Verify the robot name matches a system in `$AIRLAB_PATH/robot/robots.yaml`.
 4. "SSH connection failed": Check network connectivity and credentials, or use `--password`.
