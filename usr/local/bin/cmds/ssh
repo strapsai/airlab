@@ -180,22 +180,10 @@ main() {
         exit 1
     fi
 
-    # Get robot workspace path from robot_info.yaml
-    ROBOT_INFO_PATH="$AIRLAB_PATH/robot/robot_info.yaml"
-    if [[ ! -f "$ROBOT_INFO_PATH" ]]; then
-        log_error "Robot info file not found at '$ROBOT_INFO_PATH'"
-        exit 1
-    fi
-
-    REMOTE_WS_PATH=$(parse_yaml "$ROBOT_INFO_PATH" "$ROBOT_NAME.ws_path") || {
-        log_error "Failed to get workspace path from robot_info.yaml"
-        exit 1
-    }
-
-    if [[ -z "$REMOTE_WS_PATH" ]]; then
-        log_error "Workspace path is empty in robot_info.yaml"
-        exit 1
-    fi
+    # NOTE: `airlab ssh` only opens an interactive shell, so it needs just a
+    # resolvable SSH address (above) — NOT a workspace. We deliberately do not read
+    # robot_info.yaml / ws_path here, so ssh keeps working when ws_path is empty,
+    # unset, or robot_info.yaml is absent (matching `ping` and `auth`).
 
     # Authenticate via SSH (robot_password is set by ssh_authenticate)
     robot_password=""
