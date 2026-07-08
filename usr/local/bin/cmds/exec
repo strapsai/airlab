@@ -58,7 +58,7 @@ main() {
     local ADDR
     ADDR="$(resolve_ssh_address "$TARGET" "$ADDRESS")"
     if [[ -z "$ADDR" ]]; then
-        log_error "target '$TARGET'${ADDRESS:+ (address '$ADDRESS')} not found in robots.yaml / robot.conf"
+        log_error "target '$TARGET'${ADDRESS:+ (address '$ADDRESS')} not found in robots.yaml"
         exit 1
     fi
 
