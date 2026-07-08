@@ -3,6 +3,9 @@
 # Exit on error, undefined variables, and pipe failures
 set -uo pipefail
 
+# Shared SSH-address resolution (--address via robots.yaml)
+source "$(dirname "$0")/_lib/resolve.sh"
+
 # Color codes for output
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
@@ -22,7 +25,7 @@ show_usage() {
     echo "Equivalent to: docker stop \$(docker ps -a -q) && docker rm \$(docker ps -a -q)"
     echo
     echo -e "${YELLOW}Options:${NC}"
-    echo "  --system=<system_name>    Run against a remote robot listed in robot.conf."
+    echo "  --system=<system_name>    Run against a remote robot listed in robots.yaml."
     echo "  --yes, -y                 Skip the confirmation prompt."
     echo "  --password                Skip key-based SSH and prompt for password directly."
     echo "  --help                    Display this help message."
@@ -135,16 +138,10 @@ main() {
     script=$(clean_script)
 
     if [[ -n "$SYSTEM_NAME" ]]; then
-        local ROBOT_CONF="$AIRLAB_PATH/robot/robot.conf"
-        if [[ ! -f "$ROBOT_CONF" ]]; then
-            log_error "Robot configuration file not found at '$ROBOT_CONF'"
-            exit 1
-        fi
-
         local ROBOT_SSH_ADDRESS
-        ROBOT_SSH_ADDRESS=$(grep "^$SYSTEM_NAME=" "$ROBOT_CONF" | cut -d= -f2)
+        ROBOT_SSH_ADDRESS=$(resolve_ssh_address "$SYSTEM_NAME")
         if [[ -z "$ROBOT_SSH_ADDRESS" ]]; then
-            log_error "System '$SYSTEM_NAME' not found in $ROBOT_CONF"
+            log_error "System '$SYSTEM_NAME' not found in robots.yaml"
             exit 1
         fi
 
