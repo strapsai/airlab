@@ -6,7 +6,7 @@ USER_HOME=$(getent passwd $SUDO_USER | cut -d: -f6)
 readonly ENV_FILE="/etc/airlab/airlab.env"
 readonly DEFAULT_AIRLAB_PATH="$USER_HOME/airlab_ws"
 
-# Shared SSH-address resolution (--address via robots.yaml, robot.conf fallback)
+# Shared SSH-address resolution (--address via robots.yaml)
 source "$(dirname "$0")/_lib/resolve.sh"
 
 # Color codes for output
@@ -473,7 +473,7 @@ setup_remote() {
     # Resolve the operator's AIRLAB_PATH. We source ~/.bashrc, but the stock Ubuntu
     # ~/.bashrc returns early in a NON-interactive shell (the `case $- in *i*) ;; *) return`
     # guard) — which is exactly what we are — so it never reaches the `source .../airlab.env`
-    # line and AIRLAB_PATH comes back empty (then "/robot/robot.conf" not found). Recover it:
+    # line and AIRLAB_PATH comes back empty (then "/robot/robots.yaml" not found). Recover it:
     # honor an AIRLAB_PATH already in the environment (e.g. `sudo -E`/`sudo AIRLAB_PATH=...`),
     # else source the airlab.env that ~/.bashrc points at, else fall back to the default.
     source "$USER_HOME/.bashrc" 2>/dev/null
@@ -488,15 +488,15 @@ setup_remote() {
     fi
     : "${AIRLAB_PATH:=$DEFAULT_AIRLAB_PATH}"
     local remote_path=$AIRLAB_PATH
-    local robots_conf="$remote_path/robot/robot.conf"
-    [[ ! -f "$robots_conf" ]] && error_exit "Robot configuration not found: $robots_conf (resolved AIRLAB_PATH='$remote_path')"
+    local robots_yaml="$remote_path/robot/robots.yaml"
+    [[ ! -f "$robots_yaml" ]] && error_exit "Robot registry not found: $robots_yaml (resolved AIRLAB_PATH='$remote_path')"
 
-    # Resolve robot SSH address (registry-aware; robot.conf fallback), then split into a bare
+    # Resolve robot SSH address via the robots.yaml registry, then split into a bare
     # user@host + SSH_PORT so every ssh/scp/rsync below honors a port-bearing
     # (ssh://user@host:port) address. SSH_PORT is global so the helpers below see it.
     local robot_ssh_address
     robot_ssh_address=$(resolve_ssh_address "$robot_name" "$address")
-    [[ -z "$robot_ssh_address" ]] && error_exit "Robot '$robot_name'${address:+ (address '$address')} not found in robots.yaml or $robots_conf"
+    [[ -z "$robot_ssh_address" ]] && error_exit "Robot '$robot_name'${address:+ (address '$address')} not found in robots.yaml"
     SSH_PORT=22
     robot_ssh_address="${robot_ssh_address#ssh://}"
     if [[ "$robot_ssh_address" == *:* ]]; then
