@@ -1,0 +1,34 @@
+version: 1
+# Dummy registry for tests. Mirrors the real robots.yaml schema and deliberately
+# includes the tricky cases: a hostname-only (no-ip) address, a port-bearing
+# address, a system with no explicit default, and (for set_hosts) an address
+# whose composed name would be an invalid hostname.
+systems:
+  - system: robotA
+    os_user: dtc
+    type: robot
+    robot: basestation
+    network_addresses:
+      - address_name: default
+        ip: 10.0.0.10
+        default: true
+      - address_name: vpn          # hostname only, no ip -> set_hosts skips by design
+        hostname: robotA-vpn
+      - address_name: fwd          # port-bearing -> ssh://user@host:port
+        ip: 10.0.0.10
+        port: 2222
+
+  - system: baseA
+    os_user: airlab
+    type: basestation
+    network_addresses:
+      - address_name: default
+        ip: 10.0.0.20
+        default: true
+
+  - system: no-default-bot         # no address marked default -> resolver falls back to first
+    os_user: dtc
+    type: robot
+    network_addresses:
+      - address_name: only
+        ip: 10.0.0.30

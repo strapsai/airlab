@@ -1,0 +1,12 @@
+# Dummy version_control manifest for vcs tests (read-only checks in T1; real git
+# in T2). `dir` is where clones live relative to $AIRLAB_PATH.
+dir: src
+repositories:
+  present_repo:
+    type: git
+    url: git@github.com:example/present_repo.git
+    version: main
+  missing_repo:
+    type: git
+    url: git@github.com:example/missing_repo.git
+    version: main

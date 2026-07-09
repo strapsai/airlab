@@ -1,0 +1,40 @@
+name: tests
+
+# Trigger: the primary gate is PRs into `test` (dev->test promotions). We also run
+# the fast tier on PRs into `dev` so day-to-day PRs get feedback. Manual on-demand
+# via the Actions "Run workflow" button (workflow_dispatch).
+on:
+  pull_request:
+    branches: [test, dev]
+  workflow_dispatch:
+
+# One in-flight run per branch; cancel superseded runs.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    # T1 — pure-logic tier. Hosted runner, no docker/network. Safe on a public repo.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test deps
+        run: pip install -r test/requirements-test.txt
+      - name: Run T1 (unit) tests
+        working-directory: test
+        run: python -m pytest unit -m unit -ra
+
+  # -------------------------------------------------------------------------
+  # Later phases (added as they land; NOT enabled yet):
+  #   integration-git : T2, hosted runner + git fixtures.
+  #   e2e             : T3, SELF-HOSTED runner (Machine A operator + Machine B
+  #                     sacrificial robot). Enable ONLY once the repo is private
+  #                     and jobs are gated to trusted branches (never fork PRs).
+  #                     Runs nightly (schedule) + on-demand (workflow_dispatch),
+  #                     serialized via a concurrency group over Machine B.
+  #   install         : T4, .deb build + dpkg -i in a throwaway Ubuntu container.
+  # -------------------------------------------------------------------------

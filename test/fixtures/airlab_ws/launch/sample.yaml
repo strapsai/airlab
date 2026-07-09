@@ -1,0 +1,6 @@
+# Dummy tmuxp-style launch file referenced by LAUNCH_FILE_PATH / robot-launch.
+session_name: airlab-test
+windows:
+  - window_name: main
+    panes:
+      - echo "airlab test launch"
