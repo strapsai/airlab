@@ -1,0 +1,20 @@
+robots:
+  robotA:
+    robot_ssh: "dtc@10.0.0.10"
+    ws_path: "/home/dtc/airlab_ws"
+    AIRLAB_PATH: "/home/dtc/airlab_ws"
+    ROBOT_NAME: "robotA"
+    AIRLAB_SYSTEM: "robotA"
+    USER_NAME: "dtc"
+    USER: "dtc"
+    GROUP_NAME: "dtc"
+    GROUP_ID: "1000"
+    USER_ID: "1000"
+    DOCKER_BUILD_PATH: "/home/dtc/airlab_ws/docker/docker-compose.yml"
+    DOCKER_UP_PATH: "/home/dtc/airlab_ws/docker/docker-compose.yml"
+    LAUNCH_FILE_PATH: "/home/dtc/airlab_ws/launch/sample.yaml"
+    last_updated: "2026-07-09 00:00:00"
+  baseA:
+    robot_ssh: "airlab@10.0.0.20"
+    ws_path: "/home/airlab/airlab_ws"
+    last_updated: "2026-07-09 00:00:00"
