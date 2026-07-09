@@ -8,7 +8,7 @@ subprocess against a dummy `airlab_ws` workspace.
 |------|--------|-------|--------|
 | T1 pure-logic | `unit` | nothing (hosted) | **active** |
 | T2 git-integration | `integration` | local git (hosted) | **active** |
-| T3 container / real-hardware e2e | `e2e` | self-hosted runner (Machine A) + sacrificial robot (Machine B) | planned |
+| T3 real-hardware e2e | `e2e` | self-hosted runner (Machine A) + sacrificial robot (Machine B) | **wired** (nightly + on-demand; connectivity slice) |
 | T4 install | `install` | Docker (Ubuntu container) | planned |
 
 ## Run locally

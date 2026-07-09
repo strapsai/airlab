@@ -1,7 +1,7 @@
 """T2: `vcs checkout` against local git sandboxes (offline via --no-fetch)."""
 import pytest
 
-from conftest import make_bare, make_clone, commit, current_branch, git
+from airlab_testlib import make_bare, make_clone, commit, current_branch, git
 
 CHECKOUT = "version-control/checkout"
 

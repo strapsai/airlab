@@ -9,7 +9,7 @@ suite stays green while recording the defect. Remove the entry when fixed.
 """
 import pytest
 
-from conftest import all_command_scripts
+from airlab_testlib import all_command_scripts
 
 # command -> reason it currently fails `--help` (bug to fix; see worklog)
 KNOWN_HELP_ISSUES = {

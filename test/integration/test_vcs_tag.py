@@ -1,7 +1,7 @@
 """T2: `vcs tag` (+ `push --tags` dry-run) against local git sandboxes (offline)."""
 import pytest
 
-from conftest import make_bare, make_clone, commit, tags, git
+from airlab_testlib import make_bare, make_clone, commit, tags, git
 
 TAG = "version-control/tag"
 PUSH = "version-control/push"

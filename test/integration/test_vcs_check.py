@@ -6,7 +6,7 @@ inspects the manifest YAMLs only. Both are read-only and do no network.
 """
 import pytest
 
-from conftest import make_bare, make_clone, commit, git
+from airlab_testlib import make_bare, make_clone, commit, git
 
 CHECK = "version-control/check"
 
