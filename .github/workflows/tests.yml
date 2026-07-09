@@ -73,7 +73,19 @@ jobs:
         working-directory: test
         run: .venv/bin/python -m pytest e2e -m e2e -ra
 
-  # -------------------------------------------------------------------------
-  # Later phase (not enabled yet):
-  #   install : T4, .deb build + dpkg -i in a throwaway Ubuntu container.
-  # -------------------------------------------------------------------------
+  install:
+    # T4 — build the .deb and install it in a throwaway Ubuntu container, then
+    # smoke the installed dispatcher/completions/postinst. Hosted runner has
+    # Docker; the test container is run by the host daemon (no DinD). Safe on a
+    # public repo.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test deps
+        run: pip install -r test/requirements-test.txt
+      - name: Run T4 (install) tests
+        working-directory: test
+        run: python -m pytest install -m install -ra

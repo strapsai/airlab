@@ -9,7 +9,7 @@ subprocess against a dummy `airlab_ws` workspace.
 | T1 pure-logic | `unit` | nothing (hosted) | **active** |
 | T2 git-integration | `integration` | local git (hosted) | **active** |
 | T3 real-hardware e2e | `e2e` | self-hosted runner (Machine A) + sacrificial robot (Machine B) | **wired** (nightly + on-demand; connectivity slice) |
-| T4 install | `install` | Docker (Ubuntu container) | planned |
+| T4 install | `install` | Docker (Ubuntu container) | **active** |
 
 ## Run locally
 ```bash
@@ -36,6 +36,14 @@ A dummy workspace with the tricky cases baked in: a hostname-only (no-`ip`) addr
 and a port-bearing address in `robots.yaml`; `robot_info.yaml` with `ws_path`;
 a `version_control` manifest; a compliant `alias/`. Copy-per-test keeps mutations
 isolated.
+
+## Install tier (T4)
+Builds the `.deb` (staging `usr/`+`etc/`+`DEBIAN/`), installs it in a fresh
+Ubuntu container, and smokes the installed dispatcher (`--version`, `greet`,
+`vcs`/`vcs update` routing), both shell completions, and the postinst signal
+seed. Covers the **installed** layout (incl. `vcs update`'s hardcoded path) that
+run-in-place tests can't. It does NOT run the full `install.sh` (venv/pip/apt/
+nvidia) — the manual `test/test_install.sh` remains the full-stack install smoke.
 
 ## Real-hardware config (T3, later)
 The e2e tier targets a real sacrificial robot. It will be **fully configurable** so
