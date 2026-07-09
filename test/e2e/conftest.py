@@ -52,7 +52,9 @@ def robot():
 def e2e_ws(tmp_path, robot):
     """A minimal airlab_ws whose registry resolves the robot NAME -> the real
     robot address, using the same stub robots.py the unit tests use."""
-    ws = tmp_path / "airlab_ws"
+    # Own directory — NOT "airlab_ws", which the top-level `airlab_ws` fixture
+    # (pulled in via `run`) already creates in the same tmp_path.
+    ws = tmp_path / "e2e_ws"
     (ws / "robot").mkdir(parents=True)
     shutil.copy(FIXTURE_WS / "robot" / "robots.py", ws / "robot" / "robots.py")
     (ws / "robot" / "robots.py").chmod(0o755)
