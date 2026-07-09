@@ -7,6 +7,8 @@ on:
   pull_request:
     branches: [test, dev]
   workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * *"   # nightly ~08:00 UTC — the real-hardware e2e tier
 
 # One in-flight run per branch; cancel superseded runs.
 concurrency:
@@ -43,12 +45,35 @@ jobs:
         working-directory: test
         run: python -m pytest integration -m integration -ra
 
+  e2e:
+    # T3 — real-hardware tier on the self-hosted arm64 runner (Machine A operator
+    # -> Machine B sacrificial robot). Deliberately runs ONLY on schedule + manual
+    # dispatch (NEVER on pull_request), so fork/PR code can't run on the self-hosted
+    # runner. Serialized over the single robot via a job-level concurrency group.
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: [self-hosted, linux, arm64, airlab-operator]
+    concurrency:
+      group: e2e-robot          # one e2e run at a time against Machine B
+      cancel-in-progress: false
+    env:
+      AIRLAB_TEST_ROBOT_AVAILABLE: "1"
+      AIRLAB_TEST_ROBOT_ADDR: ${{ vars.AIRLAB_TEST_ROBOT_ADDR }}
+      AIRLAB_TEST_ROBOT_USER: ${{ vars.AIRLAB_TEST_ROBOT_USER }}
+      AIRLAB_TEST_ROBOT_PORT: ${{ vars.AIRLAB_TEST_ROBOT_PORT }}
+      AIRLAB_TEST_ROBOT_PASSWORD: ${{ secrets.AIRLAB_TEST_ROBOT_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      # Use the runner's system python3 (avoid setup-python downloads on arm64/Jetson).
+      - name: Set up venv + deps
+        working-directory: test
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r requirements-test.txt
+      - name: Run T3 (e2e) tests
+        working-directory: test
+        run: .venv/bin/python -m pytest e2e -m e2e -ra
+
   # -------------------------------------------------------------------------
-  # Later phases (added as they land; NOT enabled yet):
-  #   e2e             : T3, SELF-HOSTED runner (Machine A operator + Machine B
-  #                     sacrificial robot). Enable ONLY once the repo is private
-  #                     and jobs are gated to trusted branches (never fork PRs).
-  #                     Runs nightly (schedule) + on-demand (workflow_dispatch),
-  #                     serialized via a concurrency group over Machine B.
-  #   install         : T4, .deb build + dpkg -i in a throwaway Ubuntu container.
+  # Later phase (not enabled yet):
+  #   install : T4, .deb build + dpkg -i in a throwaway Ubuntu container.
   # -------------------------------------------------------------------------

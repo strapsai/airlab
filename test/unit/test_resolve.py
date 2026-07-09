@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from conftest import CMDS
+from airlab_testlib import CMDS
 
 
 def _resolve(ws, name, address=None):
