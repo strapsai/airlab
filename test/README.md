@@ -7,7 +7,7 @@ subprocess against a dummy `airlab_ws` workspace.
 | Tier | Marker | Needs | Status |
 |------|--------|-------|--------|
 | T1 pure-logic | `unit` | nothing (hosted) | **active** |
-| T2 git-integration | `integration` | local git | planned |
+| T2 git-integration | `integration` | local git (hosted) | **active** |
 | T3 container / real-hardware e2e | `e2e` | self-hosted runner (Machine A) + sacrificial robot (Machine B) | planned |
 | T4 install | `install` | Docker (Ubuntu container) | planned |
 
