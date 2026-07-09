@@ -99,6 +99,27 @@ def robot_ssh(robot):
 
 
 @pytest.fixture
+def robot_sudo(robot):
+    """Run a command under sudo on the robot, feeding AIRLAB_TEST_ROBOT_PASSWORD to
+    `sudo -S` (B has no passwordless sudo). Used for reset/cleanup that needs root."""
+    def _sudo(remote_cmd, timeout=30):
+        args = ["ssh", "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=15"]
+        if str(robot["port"]) != "22":
+            args += ["-p", str(robot["port"])]
+        args += [f"{robot['user']}@{robot['addr']}", f"sudo -S -p '' {remote_cmd}"]
+        return subprocess.run(args, input=(robot["password"] or "") + "\n",
+                              capture_output=True, text=True, timeout=timeout)
+    return _sudo
+
+
+@pytest.fixture
+def reset_hosts(robot_sudo):
+    """Strip the airlab-managed block from the robot's /etc/hosts after the test."""
+    yield
+    robot_sudo("sed -i '/# Airlab Hosts Start/,/# Airlab Hosts End/d' /etc/hosts", timeout=30)
+
+
+@pytest.fixture
 def reset_robot(robot, robot_ssh):
     """Reset the robot to a known state around a mutating test: remove the remote
     test workspace before and after. (Docker/hosts cleanups are added per-test.)"""
