@@ -1,0 +1,6 @@
+# Minimal compose file so commands that reference DOCKER_UP_PATH / DOCKER_BUILD_PATH
+# have a real target to point at. Not started in unit tests.
+services:
+  sample:
+    image: hello-world
+    container_name: airlab-test-sample

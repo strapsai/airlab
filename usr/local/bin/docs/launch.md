@@ -9,7 +9,7 @@ airlab launch <robot_name> [options]
 ```
 
 ## Arguments
-- `<robot_name>`: Name of the robot to launch (must be defined in robot.conf)
+- `<robot_name>`: Name of the robot to launch (must be defined in robots.yaml)
   - Use 'local' as the robot name to launch locally
 
 ## Options
@@ -44,7 +44,7 @@ airlab launch mt001 --yaml_file=mt002.yaml --stop
 
 ## Configuration
 ### Robot Configuration
-- Defined in `robot.conf`
+- Defined in `robots.yaml`
 - Must contain robot definitions for remote operations
 - Robot names in the command must match entries in this configuration
 
@@ -52,7 +52,7 @@ airlab launch mt001 --yaml_file=mt002.yaml --stop
 1. The YAML file path should always be relative to the robot's workspace
 2. Use 'local' as the robot name for local operations
 3. The default launch file can be changed using the `airlab set_env` command
-4. Remote operations require proper configuration in robot.conf
+4. Remote operations require proper configuration in robots.yaml
 
 ## Error Handling
 The command includes error checking for:
@@ -64,5 +64,5 @@ The command includes error checking for:
 ## Dependencies
 Required components:
 - tmux
-- Robot configuration file (robot.conf)
+- Robot registry (robots.yaml)
 - YAML launch files

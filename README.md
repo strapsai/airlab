@@ -120,7 +120,7 @@ After installing airlab you can run the command to setup the environment `airlab
 
 *   **Sub-commands:** `airlab <TAB>` lists all available commands (`setup`, `ssh`, `sync`, `vcs`, etc.).
 *   **Options and flags:** `airlab sync mt001 <TAB>` lists `--dry-run`, `--delete`, `--path=`, `--exclude=`, etc.
-*   **Robot names:** Commands that take a robot name (e.g., `airlab ssh <TAB>`) complete from the entries in `$AIRLAB_PATH/robot/robot.conf`.
+*   **Robot names:** Commands that take a robot name (e.g., `airlab ssh <TAB>`) complete from the systems in `$AIRLAB_PATH/robot/robots.yaml`.
 *   **Paths:** `airlab sync <robot> --path=<TAB>` and `--exclude=<TAB>` complete with files and directories under `$AIRLAB_PATH`.
 *   **Docker containers:** `airlab docker-join --name=<TAB>` completes with currently running Docker container names.
 *   **VCS repo files:** `airlab vcs init --repo_file=<TAB>` completes with `.yaml`/`.yml` files (and subdirectories) under `$AIRLAB_PATH/version_control/`.
@@ -161,11 +161,11 @@ airlab setup <robot_name> [--path=<install_path>] [--force] [--password]
 *   `--path`: Installation directory (default: `~/airlab_ws`)
 *   `--force`: Overwrite an existing installation.
 *   `--password`: Skip key-based SSH authentication and prompt for a password directly (remote setup only).
-*   `<robot_name>`: Robot identifier, as defined in `robot.conf`.
+*   `<robot_name>`: Robot identifier, as defined in `robots.yaml`.
 
 #### Configuration Files
 
-*   Robot config: `robot.conf` in the workspace's `robot` folder.
+*   Robot registry: `robots.yaml` in the workspace's `robot` folder.
 *   Environment: `airlab.env` (created during setup).
 *   Bash config: Updates to `.bashrc`.
 
@@ -202,17 +202,23 @@ airlab setup robot1 --force
 
 ##### Robot Configuration
 
-In `robot.conf`:
+In `robots.yaml`, add each robot as a system with an `os_user` and a network address:
 
-```bash
-robot1=airlab@192.45.34.1
-robot2=airlab@192.45.34.2
+```yaml
+systems:
+  - system: robot1
+    os_user: airlab
+    type: robot
+    network_addresses:
+      - address_name: default
+        ip: 192.45.34.1
+        default: true
 ```
 
 #### Common Issues
 
 1.  "Permission denied": Check permissions on the installation path.
-2.  "SSH connection failed": Verify entries in `robot.conf`.
+2.  "SSH connection failed": Verify entries in `robots.yaml`.
 3.  "Configuration exists": Use `--force` to overwrite.
 4.  "Environment not set": Check `airlab.env` and `.bashrc`.
 
@@ -237,13 +243,13 @@ airlab ssh <robot_name> [options]
 
 #### Configuration Files
 
-*   Robot config: `$AIRLAB_PATH/robot/robot.conf`
+*   Robot registry: `$AIRLAB_PATH/robot/robots.yaml`
 *   Robot info: `$AIRLAB_PATH/robot/robot_info.yaml`
 
 #### Quick Examples
 
 ```bash
-airlab ssh mt001  # SSH into mt001, as defined in robot.conf
+airlab ssh mt001  # SSH into mt001, as defined in robots.yaml
 ```
 
 #### Dependencies
@@ -272,7 +278,7 @@ airlab auth <robot_name>
 
 #### Arguments
 
-*   `<robot_name>`: Name of the robot (must be defined in `robot.conf`).
+*   `<robot_name>`: Name of the robot (must be defined in `robots.yaml`).
 
 #### Options
 
@@ -338,7 +344,7 @@ airlab set_env robot1 MY_VAR="hello"
 
 ### set_hosts
 
-Updates `/etc/hosts` with hostname-to-IP mappings from `robot.conf`, so you can reach robots by name (e.g., `ping mt001`).
+Updates `/etc/hosts` with hostname-to-IP mappings from `robots.yaml`, so you can reach robots by name (e.g., `ping mt001`).
 
 #### Usage
 
@@ -368,8 +374,8 @@ airlab set_hosts mt001 --password   # Use password authentication
 
 #### Features
 
-*   Reads `robot.conf` entries and generates `/etc/hosts` lines mapping robot names to their IPs.
-*   Skips `ssh://` URI entries (e.g., `ssh://user@host:port` for port-forwarded connections), since they share a single hostname with different ports and don't map to unique IPs.
+*   Reads each robot's `network_addresses` from `robots.yaml`: the default address maps to the robot name, every other address to `<robot>-<address_name>`.
+*   Skips any address with no `ip` (it resolves by hostname, not a static IP) or whose composed name isn't a valid hostname, and prints a summary of what was skipped and why.
 *   Creates a timestamped backup before modifying `/etc/hosts` (e.g., `/etc/hosts_20260429_160345`).
 *   Uses fenced markers (`# Airlab Hosts Start` / `# Airlab Hosts End`) — if markers exist, only the content between them is replaced.
 *   Checks for hostname and IP conflicts with existing entries outside the markers. If conflicts are found, warns and aborts.
@@ -407,7 +413,7 @@ airlab sync <robot_name> [options]
 
 #### Configuration Files
 
-*   Robot config: `$AIRLAB_PATH/robot/robot.conf`
+*   Robot registry: `$AIRLAB_PATH/robot/robots.yaml`
 *   Robot info: `$AIRLAB_PATH/robot/robot_info.yaml`
 
 #### Quick Examples
@@ -460,7 +466,7 @@ airlab launch <robot_name> [options]
 
 #### Options
 
-*   `<robot_name>`: Name of the robot (must be defined in `robot.conf`).
+*   `<robot_name>`: Name of the robot (must be defined in `robots.yaml`).
 *   `--yaml_file=<file_name>`: Alternative launch file (relative to the workspace).
 *   `--stop`: Stop the `tmux` session.
 *   `--password`: Skip key-based SSH authentication and prompt for a password directly (remote operations only).
@@ -469,7 +475,7 @@ airlab launch <robot_name> [options]
 #### Configuration Files
 
 *   Launch files: Set by the `LAUNCH_FILE_PATH` environment variable.
-*   Robot config: `$AIRLAB_PATH/robot/robot.conf`
+*   Robot registry: `$AIRLAB_PATH/robot/robots.yaml`
 *   Robot info: `$AIRLAB_PATH/robot/robot_info.yaml`
 
 #### Quick Examples
@@ -495,7 +501,7 @@ airlab launch mt001 --yaml_file=mt002.yaml  # Launch specific yaml on mt001
 #### Common Issues
 
 1.  "YAML file not found": Check the `LAUNCH_FILE_PATH` environment variable.
-2.  "System not found": Verify the robot name in `robot.conf`.
+2.  "System not found": Verify the robot name in `robots.yaml`.
 3.  "Cannot connect": Check network and SSH credentials.
 4.  "Failed to get workspace": Verify entries in `robot_info.yaml`.
 
@@ -604,7 +610,7 @@ airlab docker-clean --system=mt001   # clean every container on mt001
 
 #### Common Features
 
-*   **Remote Operations**: Requires a valid system definition in `robot.conf`, SSH credentials, and correct configuration in `robot_info.yaml`.
+*   **Remote Operations**: Requires a valid system definition in `robots.yaml`, SSH credentials, and correct configuration in `robot_info.yaml`.
 *   **Error Handling**: Employs colored error messages and performs validation before executing operations.
 *   **Dependencies**: `docker`, `docker-compose`, `ssh`, `sshpass`.
 *   **Environment**: Requires `$DOCKER_BUILD_PATH` and `$DOCKER_UP_PATH` to be set.
@@ -980,7 +986,7 @@ workspace/
 │   ├── sample.yaml                 # Launch file for starting nodes or systems
 │
 ├── robot/
-│   ├── robot.conf                  # Configuration file for robot-specific settings
+│   ├── robots.yaml                 # Robot registry: systems + network addresses
 │   ├── robot_info.yaml             # System-generated YAML file containing robot information
 │
 ├── version_control/
@@ -1016,14 +1022,20 @@ This folder holds all **launch** files in the [tmuxp format](https://github.com/
 
 This folder contains the configuration files that define robot-specific settings and metadata. It is essential for ensuring that the robot's environment is properly configured and that the system can integrate various robots into the workspace.
 
--   **robot.conf**: A configuration file to define the IP addresses of remote systems. The format is simple:
+-   **robots.yaml**: The robot registry — defines each remote system, its `os_user`/`type`, and one or more named `network_addresses` (a `default`, plus optional ones like `internet`/`vpn`), each with an `ip` and/or `hostname`:
 
-    ```
-    mt001=dtc@10.223.1.99
-    mt002=dtc@10.3.1.102
+    ```yaml
+    systems:
+      - system: mt001
+        os_user: dtc
+        type: robot
+        network_addresses:
+          - address_name: default
+            ip: 10.223.1.99
+            default: true
     ```
 
-    Each line maps a robot identifier (e.g., `mt001`) to an IP address and a username.
+    `airlab` resolves a robot's SSH address (and named `--address` values) from here.
 
 -   **robot_info.yaml**: A dynamically generated YAML file that contains detailed information about the robots in the system, including metadata such as IP addresses, usernames, and robot models.
 
@@ -1039,7 +1051,7 @@ This folder contains the configuration files that define robot-specific settings
 ##### Usage:
 
 -   The **robot_info.yaml** file is automatically updated by the `airlab` command to reflect the latest robot configurations.
--   The **robot.conf** file must be manually updated to include the IP addresses of new robots as they are added to the system.
+-   The **robots.yaml** file is manually maintained — add new robots (and their network addresses) here as they join the fleet.
 
 #### version_control/
 
@@ -1105,7 +1117,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 *   NVIDIA Driver, [Prerequisites](#prerequisites)
 *   NVIDIA Container Toolkit, [Prerequisites](#prerequisites)
 *   ROS2, [Future Work](#future-work)
-*   `robot.conf`, [Setup Process](#setup-process), [Setup](#setup)
+*   `robots.yaml`, [Setup Process](#setup-process), [Setup](#setup)
 *   `robot_info.yaml`, [Setup Process](#setup-process), [Setup](#setup)
 *   rsync, [Introduction](#introduction)
 *   SSH, [Setup Process](#setup-process), [Setup](#setup)

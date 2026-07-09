@@ -39,11 +39,16 @@ When running airlab setup local, the command:
 
 ### Remote Setup
 
-To configure the environment on a remote robot system, add the name of your robot to the `robot.conf` file, located in the `robot` folder of your workspace. For example, if your workspace is structured as follows:
-
-The syntax should be something like:
-```bash
-robot1=airlab@192.45.34.1
+To configure the environment on a remote robot system, add your robot to the `robots.yaml` registry in the `robot` folder of your workspace — as a system with an `os_user` and at least one network address. For example:
+```yaml
+systems:
+  - system: robot1
+    os_user: airlab
+    type: robot
+    network_addresses:
+      - address_name: default
+        ip: 192.45.34.1
+        default: true
 ```
 
 After that you can run the command:
@@ -56,6 +61,25 @@ airlab setup robot1 --path=/desired/installation/path --force
 - `--path` : Specify the custom installation path. If not provided, defaults to ~/airlab_ws.
 - `--force`: Overwrite existing installations.
 - `--password`: Skip key-based SSH authentication and prompt for a password directly.
+- `--airlab-src=<dir>`: Install the airlab **tool** from a LOCAL source tree instead of downloading
+  it from GitHub. Works online too; **required** with `--offline`.
+- `--offline`: No-network remote install (for **in-field re-provisioning** of robots with no
+  Internet). Uses `--airlab-src` for the tool, rsyncs the **airlab_ws repository content** from the
+  local working tree (no `git clone`, and **never** the `*_ws` ROS workspace folders — those are
+  delivered separately by `airlab sync`), and runs the robot's `install.sh --offline` (skips
+  apt/pip, reuses the existing venv). Implies `--keep-env`. Assumes the robot already went through
+  an online initial setup (apt deps + venv in place).
+- `-y`, `--non-interactive`: Answer all prompts non-interactively (proceed / yes). Use for
+  automation (e.g. the Ansible robot plays).
+- `--keep-env`: Preserve the robot's existing `airlab.env` **and** the operator's local
+  `robot/robot_info.yaml` (no regeneration, no clobber). Implied by `--offline`.
+- `--no-reboot`: Never prompt for or perform the post-setup reboot.
+
+##### In-field offline example
+```bash
+sudo airlab setup robot1 --offline --airlab-src=/home/dtc/Documents/yaoyu/airlab \
+    --force -y --keep-env --no-reboot
+```
 
 When running airlab setup <system_name>, the command:
 - Validates the robot configuration
@@ -93,11 +117,11 @@ DOCKER_UP_PATH=<path/to/docker/compose>
 LAUNCH_FILE_PATH=<path/to/launch/file>
 ```
 
-### robot.conf
-Contains robot SSH configurations in the format:
-```bash
-robot_name=username@ip_address
-```
+### robots.yaml
+The robot registry: each system lists its `os_user`, `type`, and one or more named
+`network_addresses` (a `default`, plus optional ones like `internet`/`vpn`), each
+with an `ip` and/or `hostname`. `airlab` resolves a robot's SSH address from here
+(see `robot/robots.yaml` in your workspace for the full schema).
 
 ### Robot Information YAML
 Located at `$AIRLAB_PATH/robot/robot_info.yaml`, stores robot-specific information:
@@ -131,7 +155,7 @@ Example:
 
 1. Always backup existing configurations before using the `--force` option
 2. Use absolute paths or `~` notation when specifying custom paths
-3. Verify robot configurations in `robot.conf` before attempting remote setup
+3. Verify robot configurations in `robots.yaml` before attempting remote setup
 4. Test SSH connectivity before initiating remote setup
 5. Review host file modifications after setup completion
 
@@ -140,4 +164,4 @@ Example:
 - Run `source ~/.bashrc` after setup to apply environment changes
 - Remote setup may require system restart for all changes to take effect
 - Host file modifications require sudo privileges
-- Keep robot.conf entries up to date with correct SSH addresses
+- Keep robots.yaml entries up to date with correct SSH addresses

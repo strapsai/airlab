@@ -3,7 +3,7 @@
 # Exit on error, undefined variables, and pipe failures
 set -euo pipefail
 
-# Shared SSH-address resolution (supports --address via robots.yaml, robot.conf fallback)
+# Shared SSH-address resolution (supports --address via robots.yaml)
 source "$(dirname "$0")/_lib/resolve.sh"
 
 # Color codes for output
@@ -23,7 +23,7 @@ show_usage() {
     echo "  airlab ssh <robot_name> [options]"
     echo
     echo -e "${YELLOW}Arguments:${NC}"
-    echo "  <robot_name>              Name of the robot to ssh into (must be defined in robot.conf)"
+    echo "  <robot_name>              Name of the robot to ssh into (must be defined in robots.yaml)"
     echo
     echo -e "${YELLOW}Options:${NC}"
     echo "  --address <name>          Use a named network address from robots.yaml (e.g. internet, vpn)"
@@ -164,38 +164,19 @@ main() {
         shift
     done
 
-    # Check for robot configuration
-    ROBOT_CONF="$AIRLAB_PATH/robot/robot.conf"
-    if [[ ! -f "$ROBOT_CONF" ]]; then
-        log_error "Robot configuration file not found at '$ROBOT_CONF'"
-        exit 1
-    fi
-
     set +e
-    # Resolve the SSH address: prefer the target registry (robots.yaml via robots.py,
-    # which supports named --address); fall back to robot.conf for compatibility.
+    # Resolve the SSH address from the target registry (robots.yaml via robots.py),
+    # which supports named --address values (e.g. internet, vpn).
     ROBOT_SSH_ADDRESS=$(resolve_ssh_address "$ROBOT_NAME" "$ADDRESS")
     if [[ -z "$ROBOT_SSH_ADDRESS" ]]; then
-        log_error "Robot '$ROBOT_NAME'${ADDRESS:+ (address '$ADDRESS')} not found in robots.yaml or $ROBOT_CONF"
+        log_error "Robot '$ROBOT_NAME'${ADDRESS:+ (address '$ADDRESS')} not found in robots.yaml"
         exit 1
     fi
 
-    # Get robot workspace path from robot_info.yaml
-    ROBOT_INFO_PATH="$AIRLAB_PATH/robot/robot_info.yaml"
-    if [[ ! -f "$ROBOT_INFO_PATH" ]]; then
-        log_error "Robot info file not found at '$ROBOT_INFO_PATH'"
-        exit 1
-    fi
-
-    REMOTE_WS_PATH=$(parse_yaml "$ROBOT_INFO_PATH" "$ROBOT_NAME.ws_path") || {
-        log_error "Failed to get workspace path from robot_info.yaml"
-        exit 1
-    }
-
-    if [[ -z "$REMOTE_WS_PATH" ]]; then
-        log_error "Workspace path is empty in robot_info.yaml"
-        exit 1
-    fi
+    # NOTE: `airlab ssh` only opens an interactive shell, so it needs just a
+    # resolvable SSH address (above) — NOT a workspace. We deliberately do not read
+    # robot_info.yaml / ws_path here, so ssh keeps working when ws_path is empty,
+    # unset, or robot_info.yaml is absent (matching `ping` and `auth`).
 
     # Authenticate via SSH (robot_password is set by ssh_authenticate)
     robot_password=""
