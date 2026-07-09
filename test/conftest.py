@@ -10,7 +10,7 @@ import subprocess
 
 import pytest
 
-from airlab_testlib import CMDS, FIXTURE_WS, Result
+from airlab_testlib import CMDS, FIXTURE_WS, GIT_ENV, Result
 
 
 @pytest.fixture
@@ -35,6 +35,9 @@ def run(airlab_ws):
         base["AIRLAB_PATH"] = str(ws or airlab_ws)
         base["AIRLAB_ALIAS_PATH"] = str((ws or airlab_ws) / "alias")
         base.setdefault("NO_COLOR", "1")
+        # Hermetic git identity for commands that create commits/tags (annotated
+        # `vcs tag` etc.), so tests don't depend on a host global git config.
+        base.update(GIT_ENV)
         if env:
             base.update(env)
         cp = subprocess.run(

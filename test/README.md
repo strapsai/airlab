@@ -59,14 +59,14 @@ shell out to the vcstool `vcs` binary (installed via requirements-test.txt;
 `/usr/local/bin/...` path, so it belongs to the install tier.
 
 ## Known-issue xfails
-Some tests are `xfail` to record real defects the suite found, without blocking CI:
-- `robot-setup --help` requires root (`KNOWN_HELP_ISSUES` in `unit/test_help.py`).
-- `vcs pull` default runs `vcs pull --rebase`, which vcstool 0.3.0 rejects — the
-  default pull is broken; `--no-rebase` works (`test_vcs_vcstool.py`).
+Tests can be `xfail`ed to record a real defect without blocking CI (see
+`KNOWN_HELP_ISSUES` in `unit/test_help.py`). Current:
 - `set_hosts <robot>` runs plain remote `sudo cp`/`sudo tee` (no `sudo -S`/password),
   so it needs passwordless sudo on the robot; fails on a no-NOPASSWD robot
   (`e2e/test_set_hosts.py`).
-Remove the xfail when the underlying bug is fixed.
+
+Fixed (previously xfail): `robot-setup --help` (required root) and `vcs pull --rebase`
+(rejected by vcstool 0.3.0) — both resolved.
 
 Also found (not an xfail — an opt-in caveat): `robot-setup` only captures the sudo
 password when key-auth *fails*, so on a key-authorized + no-NOPASSWD robot it needs
