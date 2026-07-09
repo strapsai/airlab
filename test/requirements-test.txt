@@ -1,2 +1,7 @@
 pytest>=8,<10
 PyYAML>=6
+# vcstool provides the `vcs` binary that the airlab vcs init/pull/status/update
+# subcommands shell out to. It still imports pkg_resources, removed from
+# setuptools>=81, so pin setuptools for the vcs integration tests.
+vcstool>=0.3
+setuptools<81
