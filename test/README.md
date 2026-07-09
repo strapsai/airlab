@@ -43,7 +43,16 @@ physical machines and VMs are interchangeable — via env / Actions vars:
 `AIRLAB_TEST_ROBOT_ADDR`, `AIRLAB_TEST_ROBOT_USER`, `AIRLAB_TEST_ROBOT_PORT`,
 `AIRLAB_TEST_ROBOT_AVAILABLE` (tests skip cleanly when unset).
 
+## vcs family coverage
+`check` / `tag` / `checkout` are plain-git (offline). `init` / `status` / `pull`
+shell out to the vcstool `vcs` binary (installed via requirements-test.txt;
+`setuptools<81` is pinned because vcstool still imports `pkg_resources`).
+`update` is not covered run-in-place — it shells to a hardcoded
+`/usr/local/bin/...` path, so it belongs to the install tier.
+
 ## Known-issue xfails
-Some tests are `xfail` to record real defects without blocking CI (e.g.
-`robot-setup --help` requires root). See `KNOWN_HELP_ISSUES` in `unit/test_help.py`.
-Remove the entry when the bug is fixed.
+Some tests are `xfail` to record real defects the suite found, without blocking CI:
+- `robot-setup --help` requires root (`KNOWN_HELP_ISSUES` in `unit/test_help.py`).
+- `vcs pull` default runs `vcs pull --rebase`, which vcstool 0.3.0 rejects — the
+  default pull is broken; `--no-rebase` works (`test_vcs_vcstool.py`).
+Remove the xfail when the underlying bug is fixed.
