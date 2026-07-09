@@ -1,0 +1,91 @@
+name: tests
+
+# Trigger: the primary gate is PRs into `test` (dev->test promotions). We also run
+# the fast tier on PRs into `dev` so day-to-day PRs get feedback. Manual on-demand
+# via the Actions "Run workflow" button (workflow_dispatch).
+on:
+  pull_request:
+    branches: [test, dev]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * *"   # nightly ~08:00 UTC — the real-hardware e2e tier
+
+# One in-flight run per branch; cancel superseded runs.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    # T1 — pure-logic tier. Hosted runner, no docker/network. Safe on a public repo.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test deps
+        run: pip install -r test/requirements-test.txt
+      - name: Run T1 (unit) tests
+        working-directory: test
+        run: python -m pytest unit -m unit -ra
+
+  integration-git:
+    # T2 — git-fixture tier. Hosted runner + git (preinstalled), no vcstool,
+    # no network (local bare remotes). Safe on a public repo.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test deps
+        run: pip install -r test/requirements-test.txt
+      - name: Run T2 (integration) tests
+        working-directory: test
+        run: python -m pytest integration -m integration -ra
+
+  e2e:
+    # T3 — real-hardware tier on the self-hosted arm64 runner (Machine A operator
+    # -> Machine B sacrificial robot). Deliberately runs ONLY on schedule + manual
+    # dispatch (NEVER on pull_request), so fork/PR code can't run on the self-hosted
+    # runner. Serialized over the single robot via a job-level concurrency group.
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: [self-hosted, linux, arm64, airlab-operator]
+    concurrency:
+      group: e2e-robot          # one e2e run at a time against Machine B
+      cancel-in-progress: false
+    env:
+      AIRLAB_TEST_ROBOT_AVAILABLE: "1"
+      AIRLAB_TEST_ROBOT_ADDR: ${{ vars.AIRLAB_TEST_ROBOT_ADDR }}
+      AIRLAB_TEST_ROBOT_USER: ${{ vars.AIRLAB_TEST_ROBOT_USER }}
+      AIRLAB_TEST_ROBOT_PORT: ${{ vars.AIRLAB_TEST_ROBOT_PORT }}
+      AIRLAB_TEST_ROBOT_PASSWORD: ${{ secrets.AIRLAB_TEST_ROBOT_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      # Use the runner's system python3 (avoid setup-python downloads on arm64/Jetson).
+      - name: Set up venv + deps
+        working-directory: test
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r requirements-test.txt
+      - name: Run T3 (e2e) tests
+        working-directory: test
+        run: .venv/bin/python -m pytest e2e -m e2e -ra
+
+  install:
+    # T4 — build the .deb and install it in a throwaway Ubuntu container, then
+    # smoke the installed dispatcher/completions/postinst. Hosted runner has
+    # Docker; the test container is run by the host daemon (no DinD). Safe on a
+    # public repo.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test deps
+        run: pip install -r test/requirements-test.txt
+      - name: Run T4 (install) tests
+        working-directory: test
+        run: python -m pytest install -m install -ra

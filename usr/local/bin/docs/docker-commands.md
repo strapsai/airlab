@@ -144,7 +144,7 @@ All commands require the following dependencies:
 
 ### Configuration Files
 Commands that interact with remote systems require:
-- `robot.conf`: Contains system SSH addresses
+- `robots.yaml`: Robot registry — resolves system SSH addresses
 - `robot_info.yaml`: Contains workspace path information
 - `airlab.env`: Contains enviornment variable DOCKER_BUILD_PATH and DOCKER_UP_PATH
 

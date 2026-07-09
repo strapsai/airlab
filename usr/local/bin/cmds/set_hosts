@@ -3,7 +3,7 @@
 # Exit on error, undefined variables, and pipe failures
 set -euo pipefail
 
-# Shared SSH-address resolution (--address via robots.yaml, robot.conf fallback)
+# Shared SSH-address resolution (--address via robots.yaml)
 source "$(dirname "$0")/_lib/resolve.sh"
 
 # Color codes for output
@@ -25,11 +25,11 @@ show_usage() {
     cat << EOF
 Usage: airlab set_hosts <target> [options]
 
-Update /etc/hosts with hostname-to-IP mappings from robot.conf.
+Update /etc/hosts with hostname-to-IP mappings from robots.yaml.
 
 Arguments:
     <target>        'local' to update the local /etc/hosts file, or a robot
-                    name (from robot.conf) to update the remote robot's
+                    name (from robots.yaml) to update the remote robot's
                     /etc/hosts file via SSH.
 
 Options:
@@ -39,9 +39,13 @@ Options:
     --help          Show this help message
 
 Details:
-    Reads robot.conf entries (e.g. mt001=dtc@10.223.1.99) and generates
-    /etc/hosts entries so that robot names resolve to their IP addresses.
-    Entries using ssh:// URIs (port-forwarded connections) are skipped.
+    Reads each robot's network_addresses from robots.yaml and generates
+    /etc/hosts entries so robot names resolve to their IPs. The default
+    address is mapped to the robot name (e.g. g-uav-1); every other address
+    is mapped to <robot>-<address_name> (e.g. g-uav-1-vpn). An address with
+    no 'ip' field is skipped by design (it resolves by hostname, not a static
+    IP), as is any address whose composed name is not a valid hostname. A
+    summary of everything skipped (and why) is printed at the end.
 
     A timestamped backup of /etc/hosts is created before any modification
     (e.g. /etc/hosts_20260429_160345).
@@ -151,42 +155,68 @@ ssh_authenticate() {
     return 0
 }
 
-# Parse robot.conf and generate /etc/hosts entries.
-# Output: one line per robot in the format "IP    hostname"
-# Skips ssh:// URI entries (port-forwarded connections) since they share
-# a single hostname with different ports and don't map to unique IPs.
-generate_hosts_entries() {
-    local conf_file="$1"
-    local entries=""
-    local skipped=()
+# Generate /etc/hosts entries from a robot registry (robots.yaml). For each robot,
+# walk its network_addresses: the default address maps to the robot name, every
+# other address to "<robot>-<address_name>". An address without an 'ip' field is
+# skipped by design (it resolves by hostname, not a static IP), as is any address
+# whose composed name is not a valid hostname. Sets two globals:
+#   NEW_ENTRIES  newline-separated "IP    hostname" lines
+#   SKIPPED      array of "<robot>/<address> — <reason>" strings (for the summary)
+generate_from_registry() {
+    local robots_yaml="$1"
+    local raw
+    raw=$(python3 - "$robots_yaml" << 'PY'
+import sys, re, yaml
+try:
+    doc = yaml.safe_load(open(sys.argv[1])) or {}
+except Exception as e:
+    sys.stderr.write("error: cannot parse %s: %s\n" % (sys.argv[1], e))
+    sys.exit(1)
+label = r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
+host_re = re.compile(r'^%s(?:\.%s)*$' % (label, label))
+def valid(h):
+    return bool(h) and len(h) <= 253 and bool(host_re.match(h))
+for s in doc.get("systems", []):
+    name = s.get("system")
+    if not name:
+        continue
+    for a in s.get("network_addresses") or []:
+        an = a.get("address_name") or "?"
+        host = name if a.get("default") is True else "%s-%s" % (name, an)
+        ip = a.get("ip")
+        if not ip:
+            print("S\t%s/%s\tno 'ip' field" % (name, an))
+        elif not valid(host):
+            print("S\t%s/%s\tinvalid hostname '%s'" % (name, an, host))
+        else:
+            print("E\t%s\t%s" % (ip, host))
+PY
+) || { log_error "Failed to read registry '$robots_yaml' (is PyYAML installed?)"; exit 1; }
 
-    while IFS='=' read -r name value; do
-        # Skip empty lines, comments, or lines without '='
-        [[ -z "$name" || -z "$value" || "$name" == \#* ]] && continue
+    NEW_ENTRIES=""
+    SKIPPED=()
+    local tag f1 f2
+    while IFS=$'\t' read -r tag f1 f2; do
+        [[ -z "$tag" ]] && continue
+        case "$tag" in
+            E) NEW_ENTRIES+="$(printf '%-15s %s' "$f1" "$f2")"$'\n' ;;
+            S) SKIPPED+=("$f1 — $f2") ;;
+        esac
+    done <<< "$raw"
+    NEW_ENTRIES="${NEW_ENTRIES%$'\n'}"
+}
 
-        # Skip ssh:// URI entries (port-forwarded connections)
-        if [[ "$value" == ssh://* ]]; then
-            skipped+=("$name")
-            continue
-        fi
-
-        local ip
-        ip=$(echo "$value" | cut -d'@' -f2)
-
-        # Handle addresses with port (user@host:port)
-        ip=$(echo "$ip" | cut -d':' -f1)
-
-        if [[ -n "$ip" && -n "$name" ]]; then
-            entries+="$(printf "%-15s %s" "$ip" "$name")"$'\n'
-        fi
-    done < "$conf_file"
-
-    if [[ ${#skipped[@]} -gt 0 ]]; then
-        log_info "Skipped ${#skipped[@]} ssh:// port-forwarded entries: ${skipped[*]}" >&2
-    fi
-
-    # Remove trailing newline
-    echo -n "$entries"
+# Print a summary of network addresses that were NOT added to /etc/hosts, and why.
+# Called at the end of a run so the operator sees exactly what was left out.
+print_skipped_summary() {
+    [[ ${#SKIPPED[@]} -eq 0 ]] && return 0
+    echo "" >&2
+    log_warn "Skipped ${#SKIPPED[@]} network address(es) — not written to /etc/hosts:"
+    local s
+    for s in "${SKIPPED[@]}"; do
+        echo -e "    ${YELLOW}-${NC} ${s}" >&2
+    done
+    log_warn "Addresses without an 'ip' are skipped by design (they resolve by hostname, not a static IP)."
 }
 
 # Check for conflicts between new entries and existing /etc/hosts content
@@ -406,19 +436,23 @@ main() {
         shift
     done
 
-    # Load robot.conf
-    local ROBOT_CONF="$AIRLAB_PATH/robot/robot.conf"
-    if [[ ! -f "$ROBOT_CONF" ]]; then
-        log_error "Robot configuration file not found at '$ROBOT_CONF'"
+    # Load the target registry (robots.yaml)
+    local ROBOTS_YAML="$AIRLAB_PATH/robot/robots.yaml"
+    if [[ ! -f "$ROBOTS_YAML" ]]; then
+        log_error "Robot registry not found at '$ROBOTS_YAML'"
         exit 1
     fi
-    log_info "Using robot configuration: $(realpath "$ROBOT_CONF")"
+    log_info "Using robot registry: $(realpath "$ROBOTS_YAML")"
 
-    # Generate hosts entries from robot.conf
-    local new_entries
-    new_entries=$(generate_hosts_entries "$ROBOT_CONF")
+    # Generate /etc/hosts entries from robots.yaml network addresses.
+    # Sets NEW_ENTRIES + SKIPPED (see generate_from_registry).
+    NEW_ENTRIES=""
+    SKIPPED=()
+    generate_from_registry "$ROBOTS_YAML"
+    local new_entries="$NEW_ENTRIES"
     if [[ -z "$new_entries" ]]; then
-        log_error "No entries found in $ROBOT_CONF"
+        log_error "No usable host entries in $ROBOTS_YAML (every address lacked an 'ip' or had an invalid hostname)."
+        print_skipped_summary
         exit 1
     fi
 
@@ -432,7 +466,7 @@ main() {
             local ROBOT_SSH_ADDRESS
             ROBOT_SSH_ADDRESS=$(resolve_ssh_address "$target" "$ADDRESS")
             if [[ -z "$ROBOT_SSH_ADDRESS" ]]; then
-                log_error "Robot '$target'${ADDRESS:+ (address '$ADDRESS')} not found in robots.yaml or $ROBOT_CONF"
+                log_error "Robot '$target'${ADDRESS:+ (address '$ADDRESS')} not found in robots.yaml"
                 exit 1
             fi
             set -e
@@ -451,6 +485,9 @@ main() {
             set_remote_hosts "$ROBOT_SSH_ADDRESS" "$new_entries"
             ;;
     esac
+
+    # Report any network addresses that were intentionally left out.
+    print_skipped_summary
 }
 
 main "$@"

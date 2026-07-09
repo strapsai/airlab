@@ -9,7 +9,7 @@ airlab sync <robot_name> [options]
 ```
 
 ## Arguments
-- `<robot_name>`: Name of the target robot (must be defined in robot.conf)
+- `<robot_name>`: Name of the target robot (must be defined in robots.yaml)
 
 ## Options
 - `--dry-run`: Preview synchronization without making changes
@@ -23,14 +23,11 @@ airlab sync <robot_name> [options]
 
 ## Configuration Files
 
-### Robot Configuration (`robot.conf`)
-- Location: `$AIRLAB_PATH/robot/robot.conf`
-- Format: `robot_name=user@host`
-- Example:
-  ```
-  mt001=airlab@192.168.1.100
-  mt002=airlab@192.168.1.101
-  ```
+### Robot Registry (`robots.yaml`)
+- Location: `$AIRLAB_PATH/robot/robots.yaml`
+- Each robot is a system with one or more named network addresses (a `default`
+  plus optional ones like `internet`/`vpn`); `airlab sync` resolves the target's
+  SSH address from it. Use `--address <name>` to pick a non-default address.
 
 ### Robot Information (`robot_info.yaml`)
 - Location: `$AIRLAB_PATH/robot/robot_info.yaml`
@@ -136,7 +133,7 @@ The script includes comprehensive error checking for:
 4. Verify remote workspace paths
 
 ### Configuration
-1. Keep robot.conf up to date
+1. Keep robots.yaml up to date
 2. Verify workspace paths in robot_info.yaml
 3. Use meaningful robot names
 4. Document custom exclude patterns
@@ -146,7 +143,7 @@ The script includes comprehensive error checking for:
 ### Common Issues
 1. "SSH connection failed":
    - Check network connectivity
-   - Verify robot.conf entries
+   - Verify robots.yaml entries
    - Check SSH credentials
 
 2. "Workspace path not found":

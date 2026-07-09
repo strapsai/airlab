@@ -3,6 +3,9 @@
 # Exit on error, undefined variables, and pipe failures
 set -uo pipefail
 
+# Shared SSH-address resolution (--address via robots.yaml)
+source "$(dirname "$0")/_lib/resolve.sh"
+
 # Color codes for output
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
@@ -30,25 +33,6 @@ show_usage() {
     echo "  airlab docker-build --system=robot1 --compose=docker-compose-orin.yml"
 }
 
-# Function to get SSH address from robot.conf based on system name
-get_ssh_address() {
-    local system_name="$1"
-    
-    if [[ ! -f "$ROBOT_CONF" ]]; then
-        log_error "Robot configuration file not found at '$ROBOT_CONF'"
-        exit 1
-    fi
-
-    local ssh_address
-    ssh_address=$(grep "^$system_name=" "$ROBOT_CONF" | cut -d= -f2)
-
-    if [[ -z "$ssh_address" ]]; then
-        log_error "System '$system_name' not found in $ROBOT_CONF"
-        exit 1
-    fi
-
-    echo "$ssh_address"
-}
 
 parse_yaml() {
     local yaml_file=$1
@@ -183,16 +167,11 @@ main() {
         # Remote operations
 
         source ~/.bashrc
-        ROBOT_CONF="$AIRLAB_PATH/robot/robot.conf"
-        if [[ ! -f "$ROBOT_CONF" ]]; then
-            log_error "Robot configuration file not found at '$ROBOT_CONF'"
-            exit 1
-        fi
 
-        # Load the target system's SSH address from robot.conf
-        ROBOT_SSH_ADDRESS=$(grep "^$SYSTEM_NAME=" "$ROBOT_CONF" | cut -d= -f2)
+        # Resolve the target system's SSH address from robots.yaml.
+        ROBOT_SSH_ADDRESS=$(resolve_ssh_address "$SYSTEM_NAME")
         if [[ -z "$ROBOT_SSH_ADDRESS" ]]; then
-            log_error "System '$SYSTEM_NAME' not found in $ROBOT_CONF"
+            log_error "System '$SYSTEM_NAME' not found in robots.yaml"
             exit 1
         fi
 
