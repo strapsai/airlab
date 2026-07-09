@@ -59,8 +59,7 @@ shell out to the vcstool `vcs` binary (installed via requirements-test.txt;
 `/usr/local/bin/...` path, so it belongs to the install tier.
 
 ## Known-issue xfails
-Some tests are `xfail` to record real defects the suite found, without blocking CI:
-- `robot-setup --help` requires root (`KNOWN_HELP_ISSUES` in `unit/test_help.py`).
-- `vcs pull` default runs `vcs pull --rebase`, which vcstool 0.3.0 rejects — the
-  default pull is broken; `--no-rebase` works (`test_vcs_vcstool.py`).
-Remove the xfail when the underlying bug is fixed.
+Tests can be `xfail`ed to record a real defect without blocking CI (see
+`KNOWN_HELP_ISSUES` in `unit/test_help.py`). No hard xfails currently — the
+`robot-setup --help` (root) and `vcs pull --rebase` (vcstool 0.3.0) defects are
+now fixed.

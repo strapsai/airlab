@@ -76,12 +76,9 @@ def test_pull_no_rebase(run, tmp_path):
     assert r.rc == 0, r.out
 
 
-@pytest.mark.xfail(
-    reason="airlab `vcs pull` default runs `vcs pull --rebase`, but vcstool 0.3.0 "
-           "`vcs pull` rejects --rebase (bug: default pull is broken; use --no-rebase)",
-    strict=False,
-)
 def test_pull_default_rebase(run, tmp_path):
+    # default (rebase) pull now runs `vcs custom --git --args pull --rebase`,
+    # since vcstool's `vcs pull` doesn't accept --rebase.
     ws, _ = _build_ws(tmp_path)
     _init(run, ws)
     r = run(f"{VC}/pull", ws=ws, cwd=ws / "src", timeout=120)

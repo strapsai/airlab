@@ -11,10 +11,9 @@ import pytest
 
 from airlab_testlib import all_command_scripts
 
-# command -> reason it currently fails `--help` (bug to fix; see worklog)
-KNOWN_HELP_ISSUES = {
-    "robot-setup": "enforces root before handling --help; --help should not require sudo",
-}
+# command -> reason it currently fails `--help` (xfail). Empty: every command's
+# --help now works. Add "cmd": "reason" here to record a regression as xfail.
+KNOWN_HELP_ISSUES = {}
 
 
 def _params():

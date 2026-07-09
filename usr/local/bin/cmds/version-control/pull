@@ -57,7 +57,9 @@ main() {
     done
 
     if [[ "$REBASE" == true ]]; then
-        vcs pull --rebase
+        # vcstool's `vcs pull` does not accept --rebase; run `git pull --rebase`
+        # per repo via `vcs custom` instead.
+        vcs custom --git --args pull --rebase
     else
         vcs pull
     fi
