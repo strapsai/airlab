@@ -53,7 +53,7 @@ def run(airlab_ws):
     `cmd` is a command name under cmds/ (e.g. "ssh") or a relative path
     (e.g. "version-control/vcs"). $AIRLAB_PATH defaults to the copied workspace.
     """
-    def _run(cmd, *args, ws=None, env=None, stdin=None, timeout=60):
+    def _run(cmd, *args, ws=None, cwd=None, env=None, stdin=None, timeout=60):
         script = CMDS / cmd
         base = dict(os.environ)
         base["AIRLAB_PATH"] = str(ws or airlab_ws)
@@ -65,10 +65,64 @@ def run(airlab_ws):
         cp = subprocess.run(
             ["bash", str(script), *args],
             capture_output=True, text=True, env=base,
+            cwd=str(cwd) if cwd else None,
             input=stdin, timeout=timeout,
         )
         return Result(cp)
     return _run
+
+
+# --- git sandbox helpers (T2) -------------------------------------------- #
+# Deterministic git that ignores host/user config so tests are hermetic.
+GIT_ENV = {
+    "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.com",
+    "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.com",
+    "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
+}
+
+
+def git(*args, cwd=None, check=True):
+    env = {**os.environ, **GIT_ENV}
+    cp = subprocess.run(["git", *args], cwd=str(cwd) if cwd else None,
+                        capture_output=True, text=True, env=env)
+    if check and cp.returncode != 0:
+        raise AssertionError(f"git {' '.join(args)} failed ({cp.returncode}): {cp.stderr}")
+    return cp.stdout.strip()
+
+
+def make_bare(path):
+    path = Path(path)
+    git("init", "--bare", "-b", "main", str(path))
+    return path
+
+
+def make_clone(remote, dest, origin_url=None):
+    git("clone", str(remote), str(dest))
+    if origin_url:
+        git("remote", "set-url", "origin", origin_url, cwd=dest)
+    return Path(dest)
+
+
+def commit(repo, name="f.txt", content="x", msg="c", push=False):
+    (Path(repo) / name).write_text(content)
+    git("add", name, cwd=repo)
+    git("commit", "-m", msg, cwd=repo)
+    if push:
+        git("push", "-q", "origin", "HEAD", cwd=repo)
+    return head(repo)
+
+
+def head(repo):
+    return git("rev-parse", "HEAD", cwd=repo)
+
+
+def current_branch(repo):
+    return git("rev-parse", "--abbrev-ref", "HEAD", cwd=repo)
+
+
+def tags(repo):
+    out = git("tag", cwd=repo)
+    return out.split() if out else []
 
 
 def all_command_scripts():
