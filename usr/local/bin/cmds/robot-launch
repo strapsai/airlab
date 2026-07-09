@@ -260,6 +260,11 @@ launch_local() {
 }
 
 main() {
+    # --help must work without the runtime deps (tmuxp, etc.).
+    case "${1:-}" in
+        -h|--help) show_usage; exit 0 ;;
+    esac
+
     # Check dependencies
     check_dependencies
     [[ $# -lt 1 ]] && { show_usage; error_exit "No command provided"; }
