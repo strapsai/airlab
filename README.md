@@ -151,8 +151,10 @@ This command configures either the local environment or a remote robot system.
 #### Usage
 
 ```bash
-airlab setup local [--path=<install_path>] [--force]
+# Local setup provisions this machine system-wide, so it must run as root:
+sudo airlab setup local [--path=<install_path>] [--force]
 
+# Remote setup runs as your normal user (no local sudo) and elevates ON THE ROBOT:
 airlab setup <robot_name> [--path=<install_path>] [--force] [--password]
 ```
 
@@ -163,6 +165,18 @@ airlab setup <robot_name> [--path=<install_path>] [--force] [--password]
 *   `--password`: Skip key-based SSH authentication and prompt for a password directly (remote setup only).
 *   `<robot_name>`: Robot identifier, as defined in `robots.yaml`.
 
+#### Privileges
+
+*   **Local** (`setup local`) provisions this machine system-wide (system paths,
+    packages, the workspace pointer under `/etc/airlab`), so it **must run as root** —
+    use `sudo airlab setup local`.
+*   **Remote** (`setup <robot_name>`) runs as **your normal user** — its local git/rsync
+    steps read *your* repo and use *your* SSH keys, which must not be run as root. It
+    elevates only **on the robot**, over SSH, when a step there needs root. Supply that
+    robot-side sudo password via `--password`, the `AIRLAB_SUDO_PASSWORD` environment
+    variable, or an interactive prompt (the robot's sudo password is used only if the
+    robot lacks passwordless sudo).
+
 #### Configuration Files
 
 *   Robot registry: `robots.yaml` in the workspace's `robot` folder.
@@ -172,11 +186,11 @@ airlab setup <robot_name> [--path=<install_path>] [--force] [--password]
 #### Quick Examples
 
 ```bash
-# Local setup
-airlab setup local --path=/opt/airlab_ws
-airlab setup local --force
+# Local setup (root)
+sudo airlab setup local --path=/opt/airlab_ws
+sudo airlab setup local --force
 
-# Remote setup
+# Remote setup (your user; sudo is used only on the robot)
 airlab setup robot1 --path=/home/airlab/ws
 airlab setup robot1 --force
 ```

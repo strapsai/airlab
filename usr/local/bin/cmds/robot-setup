@@ -2,7 +2,9 @@
 
 # Constants
 
-USER_HOME=$(getent passwd $SUDO_USER | cut -d: -f6)
+# Prefer $SUDO_USER (local setup runs under sudo) but fall back to $USER so the
+# script also resolves a home dir when run WITHOUT sudo (remote setup, option b).
+USER_HOME=$(getent passwd "${SUDO_USER:-$USER}" | cut -d: -f6)
 readonly ENV_FILE="/etc/airlab/airlab.env"
 readonly DEFAULT_AIRLAB_PATH="$USER_HOME/airlab_ws"
 
@@ -661,7 +663,7 @@ setup_remote() {
                 "${airlab_src%/}/" "$robot_ssh_address:/tmp/airlab-main/" || error_exit "Failed to send local airlab source to robot"
         else
             # LEGACY online path: download the tool zip from GitHub, copy, unzip.
-            sudo curl -L -o /tmp/airlab.zip "$source_url"
+            curl -L -o /tmp/airlab.zip "$source_url"
             remote_copy "/tmp/airlab.zip" "$robot_ssh_address:/tmp/airlab.zip" "$robot_password"
             remote_sudo "$robot_ssh_address" "unzip -o /tmp/airlab.zip -d /tmp/" \
                 || error_exit "Failed to unzip airlab on $robot_ssh_address"
@@ -857,10 +859,6 @@ main() {
         -h|--help) show_usage; exit 0 ;;
     esac
 
-    if [[ "$EUID" -ne 0 ]]; then
-        echo "This script must be run as root. Please use sudo."
-        exit 1
-    fi
     [[ $# -lt 1 ]] && { show_usage; error_exit "No command provided"; }
 
     local command="$1"
@@ -870,6 +868,13 @@ main() {
 
     case "$command" in
         local)
+            # Local setup provisions system-level bits, so it must run as root.
+            # Remote setup does NOT: it runs as the invoking user (git/rsync use
+            # that user's repo + keys) and elevates ON THE ROBOT via remote_sudo,
+            # so it needs no local root.
+            if [[ "$EUID" -ne 0 ]]; then
+                error_exit "Local setup must be run as root. Please use: sudo airlab setup local"
+            fi
             setup_local "$PARSED_PATH" "$PARSED_FORCE"
             ;;
         -h|--help)
