@@ -9,13 +9,11 @@ import pytest
 
 
 @pytest.mark.e2e
-@pytest.mark.xfail(
-    reason="set_hosts uses plain remote `sudo` (no -S/password), so it needs "
-           "passwordless sudo on the robot; B has none -> remote sudo fails",
-    strict=False,
-)
 def test_set_hosts_writes_markers(run, robot, e2e_ws, robot_ssh, reset_hosts):
-    r = run("set_hosts", robot["name"], ws=e2e_ws, timeout=90)
+    # B has no passwordless sudo; the remote_sudo helper takes the sudo password
+    # from AIRLAB_SUDO_PASSWORD (env). Key-based SSH otherwise.
+    r = run("set_hosts", robot["name"], ws=e2e_ws,
+            env={"AIRLAB_SUDO_PASSWORD": robot["password"]}, timeout=90)
     assert r.rc == 0, r.out
     cp = robot_ssh("grep -c 'Airlab Hosts Start' /etc/hosts")
     assert cp.stdout.strip() not in ("", "0"), "airlab block not written to /etc/hosts"
