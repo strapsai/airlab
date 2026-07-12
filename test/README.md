@@ -67,7 +67,8 @@ Fixed (previously xfail): `robot-setup --help` (required root); `vcs pull --reba
 `_lib/remote_sudo.sh` helper (handles key/password SSH × NOPASSWD/password sudo; sudo
 password from `$robot_password` → `$AIRLAB_SUDO_PASSWORD` → prompt).
 
-Remaining caveat (not an xfail): `robot-setup` still has its own inline `sudo -S` and
-only captures the password when key-auth *fails*, so on a key-authorized + no-NOPASSWD
-robot it needs `--password`. Adopting `remote_sudo` there is a follow-up (validated via
-the opt-in `e2e/test_robot_setup.py`, gated behind `AIRLAB_TEST_ALLOW_ROBOT_SETUP=1`).
+Both `set_hosts` and `robot-setup` now route remote sudo through `_lib/remote_sudo.sh`,
+so they work on a key-authorized + no-NOPASSWD robot (sudo password from
+`$AIRLAB_SUDO_PASSWORD` etc.). The `robot-setup` path is validated via the opt-in
+`e2e/test_robot_setup.py` (gated behind `AIRLAB_TEST_ALLOW_ROBOT_SETUP=1`; reinstalls
+airlab on the robot — re-snapshot B afterward).

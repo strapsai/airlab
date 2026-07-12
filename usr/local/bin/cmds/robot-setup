@@ -8,6 +8,8 @@ readonly DEFAULT_AIRLAB_PATH="$USER_HOME/airlab_ws"
 
 # Shared SSH-address resolution (--address via robots.yaml)
 source "$(dirname "$0")/_lib/resolve.sh"
+# Remote sudo that works for key/password SSH and NOPASSWD/password sudo.
+source "$(dirname "$0")/_lib/remote_sudo.sh"
 
 # Color codes for output
 readonly RED='\033[0;31m'
@@ -648,7 +650,8 @@ setup_remote() {
 
     if [ "$do_install" = true ]; then
         log_info "Installing airlab package..."
-        remote_exec "$robot_ssh_address" "echo '$robot_password' | sudo -S rm -rf /tmp/airlab-main /tmp/airlab-main.deb /tmp/airlab.zip" "$robot_password"
+        remote_sudo "$robot_ssh_address" "rm -rf /tmp/airlab-main /tmp/airlab-main.deb /tmp/airlab.zip" \
+            || error_exit "Failed to clean /tmp on $robot_ssh_address"
 
         # Deliver the airlab tool source to the robot at /tmp/airlab-main.
         if [ -n "$airlab_src" ]; then
@@ -660,9 +663,11 @@ setup_remote() {
             # LEGACY online path: download the tool zip from GitHub, copy, unzip.
             sudo curl -L -o /tmp/airlab.zip "$source_url"
             remote_copy "/tmp/airlab.zip" "$robot_ssh_address:/tmp/airlab.zip" "$robot_password"
-            remote_exec "$robot_ssh_address" "echo '$robot_password' | sudo -S unzip -o /tmp/airlab.zip -d /tmp/" "$robot_password"
+            remote_sudo "$robot_ssh_address" "unzip -o /tmp/airlab.zip -d /tmp/" \
+                || error_exit "Failed to unzip airlab on $robot_ssh_address"
         fi
-        remote_exec "$robot_ssh_address" "echo '$robot_password' | sudo -S chmod a+x -R /tmp/airlab-main" "$robot_password"
+        remote_sudo "$robot_ssh_address" "chmod a+x -R /tmp/airlab-main" \
+            || error_exit "Failed to chmod airlab source on $robot_ssh_address"
 
         # Run install.sh on the robot NON-INTERACTIVELY (we drive it over ssh -tt with no
         # operator at the keyboard, so any prompt would hang). install.sh prompts only about
@@ -681,7 +686,11 @@ setup_remote() {
         else
             install_flags=" --override-venv"
         fi
-        "${SSHPASS_PREFIX[@]}" ssh -tt -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" "echo '$robot_password' | sudo -S echo HERE && bash /tmp/airlab-main/install.sh${install_flags}" \
+        # Prime sudo's timestamp in the SAME ssh -tt session so install.sh's internal
+        # sudo calls reuse it. Password via the shared source (robot_password/env/prompt);
+        # empty is fine on a NOPASSWD robot.
+        local sudo_pw; sudo_pw="$(_airlab_sudo_pw 2>/dev/null || true)"
+        "${SSHPASS_PREFIX[@]}" ssh -tt -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" "echo '$sudo_pw' | sudo -S echo HERE && bash /tmp/airlab-main/install.sh${install_flags}" \
             || error_exit "Failed to run install.sh on $robot_ssh_address"
 
         # install.sh already builds a CLEAN .deb (from its own staging dir) and installs it.
@@ -689,11 +698,15 @@ setup_remote() {
         # ran apt-get -f; we keep that only for the online path (it needs the network and would
         # repackage stray files). For local-source/offline we rely on install.sh's clean install.
         if [ -z "$airlab_src" ]; then
-            remote_exec "$robot_ssh_address" "echo '$robot_password' | sudo -S dpkg-deb --build /tmp/airlab-main" "$robot_password"
-            remote_exec "$robot_ssh_address" "echo '$robot_password' | sudo -S dpkg -i /tmp/airlab-main.deb" "$robot_password" "warn"
-            remote_exec "$robot_ssh_address" "echo '$robot_password' | sudo -S apt-get install -f -y" "$robot_password"
+            remote_sudo "$robot_ssh_address" "dpkg-deb --build /tmp/airlab-main" \
+                || error_exit "Failed to build .deb on $robot_ssh_address"
+            remote_sudo "$robot_ssh_address" "dpkg -i /tmp/airlab-main.deb" \
+                || error_warn "dpkg -i failed on $robot_ssh_address (proceeding)"
+            remote_sudo "$robot_ssh_address" "apt-get install -f -y" \
+                || error_exit "apt-get install -f failed on $robot_ssh_address"
         fi
-        remote_exec "$robot_ssh_address" "echo '$robot_password' | sudo -S rm -rf /tmp/airlab-main /tmp/airlab-main.deb /tmp/airlab.zip" "$robot_password"
+        remote_sudo "$robot_ssh_address" "rm -rf /tmp/airlab-main /tmp/airlab-main.deb /tmp/airlab.zip" \
+            || error_exit "Failed to clean /tmp on $robot_ssh_address"
     fi
 
     local yaml_file="$remote_path/robot/robot_info.yaml"
@@ -831,7 +844,7 @@ EOF
         read -p "Restart the system (y/n)" reboot_confirm
     fi
     if [[ "$reboot_confirm" == [yY] ]]; then
-        "${SSHPASS_PREFIX[@]}" ssh -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" "echo '$robot_password' | sudo -S reboot"
+        remote_sudo "$robot_ssh_address" "reboot" || true   # connection drops as it reboots
     else
         log_info "Skipping"
         log_info "Please reboot the system manually"

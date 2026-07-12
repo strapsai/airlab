@@ -32,13 +32,15 @@ pytestmark = [
 
 
 def test_robot_setup_reinstalls_tool(run, robot, e2e_ws, robot_ssh):
+    # Key-based SSH (A's key on B); robot-setup's remote sudo now goes through the
+    # shared remote_sudo helper, which takes the sudo password from AIRLAB_SUDO_PASSWORD.
     r = run(
         "robot-setup", robot["name"],
-        "--password", "-y", "--no-reboot", "--force",
+        "-y", "--no-reboot", "--force",
         f"--airlab-src={REPO_ROOT}",
         f"--path={robot['ws']}",
         ws=e2e_ws,
-        stdin=(robot["password"] or "") + "\n",
+        env={"AIRLAB_SUDO_PASSWORD": robot["password"]},
         timeout=1800,
     )
     assert r.rc == 0, r.out
