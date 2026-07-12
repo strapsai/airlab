@@ -60,16 +60,14 @@ shell out to the vcstool `vcs` binary (installed via requirements-test.txt;
 
 ## Known-issue xfails
 Tests can be `xfail`ed to record a real defect without blocking CI (see
-`KNOWN_HELP_ISSUES` in `unit/test_help.py`). Current:
-- `set_hosts <robot>` runs plain remote `sudo cp`/`sudo tee` (no `sudo -S`/password),
-  so it needs passwordless sudo on the robot; fails on a no-NOPASSWD robot
-  (`e2e/test_set_hosts.py`).
+`KNOWN_HELP_ISSUES` in `unit/test_help.py`). No hard xfails currently.
 
-Fixed (previously xfail): `robot-setup --help` (required root) and `vcs pull --rebase`
-(rejected by vcstool 0.3.0) — both resolved.
+Fixed (previously xfail): `robot-setup --help` (required root); `vcs pull --rebase`
+(rejected by vcstool 0.3.0); and `set_hosts <robot>` remote sudo — now via the shared
+`_lib/remote_sudo.sh` helper (handles key/password SSH × NOPASSWD/password sudo; sudo
+password from `$robot_password` → `$AIRLAB_SUDO_PASSWORD` → prompt).
 
-Also found (not an xfail — an opt-in caveat): `robot-setup` only captures the sudo
-password when key-auth *fails*, so on a key-authorized + no-NOPASSWD robot it needs
-`--password`. The opt-in `e2e/test_robot_setup.py` uses it; that test reinstalls
-airlab on the robot and is gated behind `AIRLAB_TEST_ALLOW_ROBOT_SETUP=1`
-(re-snapshot B afterward).
+Remaining caveat (not an xfail): `robot-setup` still has its own inline `sudo -S` and
+only captures the password when key-auth *fails*, so on a key-authorized + no-NOPASSWD
+robot it needs `--password`. Adopting `remote_sudo` there is a follow-up (validated via
+the opt-in `e2e/test_robot_setup.py`, gated behind `AIRLAB_TEST_ALLOW_ROBOT_SETUP=1`).
