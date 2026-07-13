@@ -5,7 +5,6 @@
 # Prefer $SUDO_USER (local setup runs under sudo) but fall back to $USER so the
 # script also resolves a home dir when run WITHOUT sudo (remote setup, option b).
 USER_HOME=$(getent passwd "${SUDO_USER:-$USER}" | cut -d: -f6)
-readonly ENV_FILE="/etc/airlab/airlab.env"
 readonly DEFAULT_AIRLAB_PATH="$USER_HOME/airlab_ws"
 
 # Shared SSH-address resolution (--address via robots.yaml)
@@ -131,26 +130,6 @@ parse_args() {
         error_exit "--airlab-src directory not found: $PARSED_AIRLAB_SRC"
     fi
 }
-
-# Environment management functions
-load_env() {
-    if [ -f "$ENV_FILE" ]; then
-        source "$ENV_FILE"
-    else
-        AIRLAB_PATH="$DEFAULT_AIRLAB_PATH"
-    fi
-}
-
-save_env() {
-    local path="$1"
-    log_info "Saving environment configuration..."
-    
-    sudo mkdir -p "$(dirname "$ENV_FILE")" || error_exit "Failed to create environment directory"
-    echo "AIRLAB_PATH=\"$path\"" | sudo tee "$ENV_FILE" > /dev/null || error_exit "Failed to save environment file"
-    
-    log_info "Environment configuration saved to $ENV_FILE"
-}
-
 
 setup_bashrc() {
     local env_path="$1"
