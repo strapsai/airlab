@@ -43,7 +43,13 @@ def fake_docker(tmp_path):
         "#!/bin/bash\n"
         'case "$1" in\n'
         '  image) [ "$2" = "inspect" ] && exit 0 ;;\n'
-        '  run) echo "FAKEDOCKER_RUN $*"; exit 0 ;;\n'
+        "  run)\n"
+        '    echo "FAKEDOCKER_RUN $*"\n'
+        "    while [ \"$#\" -gt 0 ]; do\n"
+        '      if [ "$1" = "--env-file" ]; then echo "ENVFILE_BEGIN"; cat "$2"; echo "ENVFILE_END"; fi\n'
+        "      shift\n"
+        "    done\n"
+        "    exit 0 ;;\n"
         "esac\n"
         "exit 0\n"
     )
@@ -118,6 +124,26 @@ def test_passthrough_and_mounts(run, fake_docker, tmp_path, airlab_ws):
     assert f"-v {vol}:{vol}" in r.out
     assert f"-v {airlab_ws}:{airlab_ws}" in r.out
     assert "--network=host" in r.out
+
+
+def test_airlab_env_resolved_on_host(run, fake_docker, airlab_ws):
+    # airlab.env with lazy refs must expand against the HOST user (via the
+    # host-resolved --env-file), not the container's empty/other identity.
+    (airlab_ws / "airlab.env").write_text(
+        "TEST_USER=${USER}\n"
+        "TEST_HOME=${HOME}\n"
+        "RMW_IMPLEMENTATION=rmw_fastrtps_cpp\n"
+    )
+    env = {**fake_docker,
+           "AIRLAB_DEFAULT_IMAGE": "img:test",
+           "USER": "hostuser",
+           "HOME": "/home/hostuser"}
+    r = run("ros2", "topic", "list", env=env)
+    assert r.rc == 0, r.out
+    # resolved to the host values, injected via --env-file
+    assert "TEST_USER=hostuser" in r.out
+    assert "TEST_HOME=/home/hostuser" in r.out
+    assert "TEST_USER=\n" not in r.out  # not the empty container value
 
 
 def test_in_container_script_is_valid_bash():

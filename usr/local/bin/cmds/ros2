@@ -54,6 +54,25 @@ check_dependencies() {
     fi
 }
 
+# Resolve airlab.env on the HOST (exactly as the login shell does) and write the
+# resulting KEY=VALUE pairs to $2, so lazy references (${HOME}, ${USER},
+# $(id -gn), ...) expand against the host user — not the container. Only the
+# keys airlab.env actually defines are emitted (not the whole host environment).
+build_env_file() {
+    local src="$1" out="$2"
+    (
+        set -a
+        # shellcheck disable=SC1090
+        source "$src" >/dev/null   # drop any stdout so it can't leak into $out
+        set +a
+        local key
+        while IFS= read -r key; do
+            printf '%s=%s\n' "$key" "${!key}"
+        done < <(grep -oE '^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=' "$src" \
+                 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?//; s/[[:space:]]*=$//')
+    ) > "$out"
+}
+
 main() {
     local IMAGE="${AIRLAB_DEFAULT_IMAGE:-}"
 
@@ -142,22 +161,32 @@ main() {
         TTY_FLAGS+=("-t")
     fi
 
+    # airlab.env is HOST-side config: resolve it here (so ${HOME}/${USER}/$(id ..)
+    # expand against the host user), then inject the resolved values via
+    # --env-file. Sourcing the raw file inside the container would expand those
+    # against the container's identity instead, which is wrong.
+    local -a env_file_flag=()
+    local resolved_env=""
+    if [[ -f "$AIRLAB_PATH/airlab.env" ]]; then
+        resolved_env="$(mktemp)"
+        trap 'rm -f "$resolved_env"' EXIT INT TERM
+        build_env_file "$AIRLAB_PATH/airlab.env" "$resolved_env"
+        env_file_flag=(--env-file "$resolved_env")
+    fi
+
     log_info "Running 'ros2 $*' in $IMAGE"
-    # Inside the container: source the workspace airlab.env (so important env
-    # vars are populated), then source the ROS setup — images built on the
-    # NVIDIA CUDA base don't put ros2 on PATH by default — then exec ros2.
-    # AIRLAB_PATH is passed through so the source path resolves before airlab.env
-    # (which also sets it) is read.
-    exec docker run --rm "${TTY_FLAGS[@]}" \
+    # Not exec'd: we stay alive to clean up the temp env-file after the run.
+    # Inside the container: source the ROS setup (images built on the NVIDIA CUDA
+    # base don't put ros2 on PATH by default), then exec ros2. AIRLAB_PATH is also
+    # passed explicitly so it is always present even without an airlab.env.
+    docker run --rm "${TTY_FLAGS[@]}" \
         --network=host \
         -e AIRLAB_PATH="$AIRLAB_PATH" \
+        "${env_file_flag[@]}" \
         "${mounts[@]}" \
         -w "$PWD" \
         "$IMAGE" \
         bash -lc '
-            set -o allexport
-            [ -f "$AIRLAB_PATH/airlab.env" ] && source "$AIRLAB_PATH/airlab.env"
-            set +o allexport
             source /opt/ros/*/setup.bash
             # RTI Connext RMW is built as an overlay in these images; when it is
             # the selected middleware, source its setup on top of the base ROS

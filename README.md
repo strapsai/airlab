@@ -660,7 +660,7 @@ Wrapper-specific flags must appear **before** the `ros2` sub-command. Once a non
 
 #### Volumes
 
-Always mounted (same path inside and out): `$AIRLAB_PATH`, the current working directory (`-w $PWD`), plus each folder in `AIRLAB_DEFAULT_DOCKER_VOLUMES`. The workspace `airlab.env` is sourced inside the container to populate environment variables.
+Always mounted (same path inside and out): `$AIRLAB_PATH`, the current working directory (`-w $PWD`), plus each folder in `AIRLAB_DEFAULT_DOCKER_VOLUMES`. The workspace `airlab.env` is **resolved on the host** and its variables are injected into the container (via `--env-file`), so lazy references like `${HOME}`, `${USER}`, and `$(id -gn)` expand against *you*, not the container's identity.
 
 #### DDS middleware / RMW
 
