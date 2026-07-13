@@ -662,6 +662,12 @@ Wrapper-specific flags must appear **before** the `ros2` sub-command. Once a non
 
 Always mounted (same path inside and out): `$AIRLAB_PATH`, the current working directory (`-w $PWD`), plus each folder in `AIRLAB_DEFAULT_DOCKER_VOLUMES`. The workspace `airlab.env` is sourced inside the container to populate environment variables.
 
+#### DDS middleware / RMW
+
+The wrapper does not force a middleware. Set `RMW_IMPLEMENTATION` in `airlab.env` to choose one (it is exported into the container). The container does **not** inherit your host shell, so setting it only in your terminal has no effect — put it in `airlab.env` (or the image's own `ENV`). The image must contain the matching RMW package, and every participant on the network must use the same RMW/domain to communicate over `--network=host`.
+
+For RTI Connext (`RMW_IMPLEMENTATION=rmw_connextdds`), the RMW is an overlay that needs its own setup sourced on top of the base ROS environment. When that RMW is selected, the wrapper automatically sources it — default `/opt/rmw_connextdds/install/setup.bash`, overridable with `AIRLAB_ROS2_CONNEXT_SETUP`. If the file is absent, it warns and continues (so `ros2`'s own error surfaces).
+
 #### Quick Examples
 
 ```bash

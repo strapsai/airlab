@@ -159,6 +159,18 @@ main() {
             [ -f "$AIRLAB_PATH/airlab.env" ] && source "$AIRLAB_PATH/airlab.env"
             set +o allexport
             source /opt/ros/*/setup.bash
+            # RTI Connext RMW is built as an overlay in these images; when it is
+            # the selected middleware, source its setup on top of the base ROS
+            # environment. Path defaults to the standard overlay location and can
+            # be overridden with AIRLAB_ROS2_CONNEXT_SETUP.
+            if [ "${RMW_IMPLEMENTATION:-}" = "rmw_connextdds" ]; then
+                connext_setup="${AIRLAB_ROS2_CONNEXT_SETUP:-/opt/rmw_connextdds/install/setup.bash}"
+                if [ -f "$connext_setup" ]; then
+                    source "$connext_setup"
+                else
+                    echo "[WARN] RMW_IMPLEMENTATION=rmw_connextdds but $connext_setup not found; ros2 may fail to load the RMW." >&2
+                fi
+            fi
             exec ros2 "$@"
         ' _ "$@"
 }

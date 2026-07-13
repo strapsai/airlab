@@ -11,8 +11,11 @@ fake `docker` on PATH:
 """
 import os
 import shutil
+import subprocess
 
 import pytest
+
+from airlab_testlib import CMDS
 
 pytestmark = pytest.mark.unit
 
@@ -115,3 +118,19 @@ def test_passthrough_and_mounts(run, fake_docker, tmp_path, airlab_ws):
     assert f"-v {vol}:{vol}" in r.out
     assert f"-v {airlab_ws}:{airlab_ws}" in r.out
     assert "--network=host" in r.out
+
+
+def test_in_container_script_is_valid_bash():
+    # The `bash -lc '<script>'` block is a single-quoted string, so the outer
+    # `bash -n` never parses it. Extract and syntax-check it on its own.
+    text = (CMDS / "ros2").read_text()
+    marker = "bash -lc '"
+    start = text.index(marker) + len(marker)
+    end = text.index("' _ \"$@\"", start)
+    snippet = text[start:end]
+    cp = subprocess.run(["bash", "-n"], input=snippet, text=True,
+                        capture_output=True)
+    assert cp.returncode == 0, cp.stderr
+    # guards the RTI Connext overlay logic stays present + keyed on the RMW
+    assert 'RMW_IMPLEMENTATION:-' in snippet
+    assert "rmw_connextdds" in snippet
