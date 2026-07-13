@@ -124,6 +124,7 @@ def test_passthrough_and_mounts(run, fake_docker, tmp_path, airlab_ws):
     assert f"-v {vol}:{vol}" in r.out
     assert f"-v {airlab_ws}:{airlab_ws}" in r.out
     assert "--network=host" in r.out
+    assert "unbound variable" not in r.out
 
 
 def test_airlab_env_resolved_on_host(run, fake_docker, airlab_ws):
@@ -144,6 +145,8 @@ def test_airlab_env_resolved_on_host(run, fake_docker, airlab_ws):
     assert "TEST_USER=hostuser" in r.out
     assert "TEST_HOME=/home/hostuser" in r.out
     assert "TEST_USER=\n" not in r.out  # not the empty container value
+    # the cleanup trap must not trip `set -u` (resolved_env is global)
+    assert "unbound variable" not in r.out
 
 
 def test_in_container_script_is_valid_bash():

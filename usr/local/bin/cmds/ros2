@@ -15,6 +15,12 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
 
+# Temp file holding the host-resolved airlab.env. GLOBAL (not a main() local) so
+# the EXIT trap can still see it after main() returns — otherwise `set -u` trips
+# on it ("unbound variable") and the file leaks. The trap is set once, here.
+resolved_env=""
+trap 'rm -f "${resolved_env:-}"' EXIT INT TERM
+
 show_usage() {
     echo -e "${YELLOW}Usage:${NC}"
     echo "  airlab ros2 [--image=<image>] <ros2-command> [args...]"
@@ -166,10 +172,8 @@ main() {
     # --env-file. Sourcing the raw file inside the container would expand those
     # against the container's identity instead, which is wrong.
     local -a env_file_flag=()
-    local resolved_env=""
     if [[ -f "$AIRLAB_PATH/airlab.env" ]]; then
-        resolved_env="$(mktemp)"
-        trap 'rm -f "$resolved_env"' EXIT INT TERM
+        resolved_env="$(mktemp)"   # global; cleaned up by the EXIT trap
         build_env_file "$AIRLAB_PATH/airlab.env" "$resolved_env"
         env_file_flag=(--env-file "$resolved_env")
     fi
