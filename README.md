@@ -18,6 +18,7 @@
     *   [Sync](#sync)
     *   [Launch](#launch)
     *   [Docker Commands](#docker-commands)
+    *   [ros2](#ros2)
     *   [Version Control Commands](#vcs-commands)
     *   [Alias Commands (`airlab a`)](#alias-commands)
     *   [cd](#cd)
@@ -630,6 +631,51 @@ airlab docker-clean --system=mt001   # clean every container on mt001
 *   **Environment**: Requires `$DOCKER_BUILD_PATH` and `$DOCKER_UP_PATH` to be set.
 
 Detailed documentation is available [here](/usr/local/bin/docs/docker-commands.md).
+
+---
+
+### ros2
+
+Pass-through wrapper that runs an arbitrary `ros2` sub-command inside a transient Docker container, then stops and removes the container when the command exits (via `docker run --rm`). Intended for quick one-shots — bag inspection, topic/node/param introspection, `doctor` — not for replacing the long-running compose workflow.
+
+`--network=host` is set so DDS discovery reaches nodes already running on the host, and `/opt/ros/*/setup.bash` is sourced inside the container (so it works on CUDA-base images that don't put `ros2` on `PATH`). A TTY is allocated only when both stdin and stdout are terminals, so piping works.
+
+#### Usage
+
+```bash
+airlab ros2 [--image=<image>] <ros2-command> [args...]
+```
+
+Wrapper-specific flags must appear **before** the `ros2` sub-command. Once a non-wrapper token is seen, every remaining argument is passed through to `ros2` inside the container — so `airlab ros2 bag --help` forwards `--help` to `ros2 bag`, not to the wrapper.
+
+#### Wrapper Options
+
+*   `--image=<image>`: Use a specific Docker image. Default: the value of `AIRLAB_DEFAULT_IMAGE` from your `airlab.env`.
+*   `--help`: Show the wrapper's help message.
+
+#### Environment (set in `$AIRLAB_PATH/airlab.env`)
+
+*   `AIRLAB_DEFAULT_IMAGE`: Docker image to run. **Required** (via this var or `--image=`); machine-specific, e.g. `x86-final:basestation`. If unset/empty and no `--image=` is given, the command errors and tells you to set it.
+*   `AIRLAB_DEFAULT_DOCKER_VOLUMES`: Space-separated list of host folders to bind-mount into the container (may be empty). When non-empty, **every** folder must exist and be writable by your user, or the command errors and does not start a container.
+
+#### Volumes
+
+Always mounted (same path inside and out): `$AIRLAB_PATH`, the current working directory (`-w $PWD`), plus each folder in `AIRLAB_DEFAULT_DOCKER_VOLUMES`. The workspace `airlab.env` is sourced inside the container to populate environment variables.
+
+#### Quick Examples
+
+```bash
+airlab ros2 bag info ./recording                # inspect a bag in the current dir
+airlab ros2 topic list                          # list topics on the host
+airlab ros2 --image=x86-final:basestation \
+    run my_pkg my_node                          # pin a specific image
+airlab ros2 topic list | grep tf                # pipes cleanly (no TTY error)
+```
+
+#### Dependencies
+
+*   `docker`
+*   A Docker image, via `AIRLAB_DEFAULT_IMAGE` or `--image=`.
 
 ---
 

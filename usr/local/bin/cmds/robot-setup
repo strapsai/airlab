@@ -258,6 +258,11 @@ USER_ID=\${SUDO_UID:-\$(id -u)}
 DOCKER_BUILD_PATH=$docker_build
 DOCKER_UP_PATH=$docker_up
 LAUNCH_FILE_PATH=$launch_path
+# Default Docker image for 'airlab ros2' (machine-specific, e.g. x86-final:basestation)
+AIRLAB_DEFAULT_IMAGE=
+# Space-separated host folders 'airlab ros2' mounts into the container (may be empty;
+# each listed folder must exist and be writable by your user)
+AIRLAB_DEFAULT_DOCKER_VOLUMES=
 EOF
     sed -i '/source .*airlab.env/d' "$HOME/.bashrc"
     setup_bashrc "$airlab_path"
@@ -744,6 +749,11 @@ USER_ID=\$(id -u)
 DOCKER_BUILD_PATH=$docker_build
 DOCKER_UP_PATH=$docker_up
 LAUNCH_FILE_PATH=$launch_path
+# Default Docker image for 'airlab ros2' (machine-specific, e.g. x86-final:basestation)
+AIRLAB_DEFAULT_IMAGE=
+# Space-separated host folders 'airlab ros2' mounts into the container (may be empty;
+# each listed folder must exist and be writable by your user)
+AIRLAB_DEFAULT_DOCKER_VOLUMES=
 EOF
         else
             log_info "Proceeding with existing variables"
@@ -788,6 +798,11 @@ USER_ID=$user_id
 DOCKER_BUILD_PATH=$docker_build
 DOCKER_UP_PATH=$docker_up
 LAUNCH_FILE_PATH=$launch_path
+# Default Docker image for 'airlab ros2' (machine-specific, e.g. x86-final:basestation)
+AIRLAB_DEFAULT_IMAGE=
+# Space-separated host folders 'airlab ros2' mounts into the container (may be empty;
+# each listed folder must exist and be writable by your user)
+AIRLAB_DEFAULT_DOCKER_VOLUMES=
 EOF
     fi
 

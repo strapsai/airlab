@@ -18,6 +18,7 @@ function show_usage() {
     echo "  docker-join                   Attach to a running Docker container."
     echo "  docker-list                   List active Docker containers."
     echo "  docker-clean                  Stop and remove all Docker containers."
+    echo "  ros2                          Run a ros2 command inside a transient Docker container."
     echo "  vcs                           Manage multiple repositories with common git functions."
     echo "  a                             Run a user-defined alias command (see 'airlab a --help')."
     echo "  ping                          Ping a remote robot."
@@ -81,6 +82,10 @@ case "$COMMAND" in
     docker-clean)
         # Stop and remove all Docker containers
         /usr/local/bin/cmds/docker-clean "$@"
+        ;;
+    ros2)
+        # Pass-through ros2 command into a transient ros2 container
+        /usr/local/bin/cmds/ros2 "$@"
         ;;
     vcs)
         # Do git operations on multiple repositories
