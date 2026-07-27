@@ -22,6 +22,7 @@
     *   [Version Control Commands](#vcs-commands)
     *   [Alias Commands (`airlab a`)](#alias-commands)
     *   [cd](#cd)
+    *   [compose](#compose)
     *   [upgrade](#upgrade)
 *   [Workspace Structure](#workspace-structure)
     *   [Overview](#overview-1)
@@ -1029,6 +1030,20 @@ Every alias must declare two header comments and handle `--help`:
 `airlab a <TAB>` lists alias names (sub-groups shown with a trailing `/`, leaf aliases with the extension stripped) and supports nested completion (e.g. `airlab a fleet/<TAB>`).
 
 See [`usr/local/bin/docs/alias-commands.md`](usr/local/bin/docs/alias-commands.md) for the full reference.
+
+#### compose
+
+Prefills this machine's `docker compose` command (elected file + profiles from `airlab.env`) onto your prompt, so you drive Docker Compose directly.
+
+##### Usage
+
+```bash
+airlab compose
+```
+
+Set `AIRLAB_COMPOSE_FILE` (e.g. `docker-compose-basestation.yaml`) and `AIRLAB_COMPOSE_PROFILES` (e.g. `"fleet storage-tools"`) in `airlab.env`. The airlab shell function (zsh/bash) then `cd`s to `$AIRLAB_PATH/launch` and prefills `docker compose --env-file ../airlab.env -f <file> --profile … ` — editable, with tab-completion. Run directly (or without the shell integration), it just prints the command to copy.
+
+See [`usr/local/bin/docs/compose.md`](usr/local/bin/docs/compose.md) for the full reference.
 
 #### upgrade
 
