@@ -43,7 +43,7 @@ if [ "$SKIP_APT" = true ]; then
     echo "Skipping apt-get install (--skip-apt)."
 else
     sudo apt-get install -y \
-        curl dpkg-dev git lsb-release openssh-server rsync sshpass tmux tmuxp
+        curl unzip dpkg-dev git lsb-release openssh-server rsync sshpass tmux tmuxp
 fi
 
 # With the Python venv.
