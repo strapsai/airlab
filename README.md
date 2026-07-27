@@ -22,6 +22,7 @@
     *   [Version Control Commands](#vcs-commands)
     *   [Alias Commands (`airlab a`)](#alias-commands)
     *   [cd](#cd)
+    *   [upgrade](#upgrade)
 *   [Workspace Structure](#workspace-structure)
     *   [Overview](#overview-1)
     *   [Directory Structure](#directory-structure)
@@ -1028,6 +1029,20 @@ Every alias must declare two header comments and handle `--help`:
 `airlab a <TAB>` lists alias names (sub-groups shown with a trailing `/`, leaf aliases with the extension stripped) and supports nested completion (e.g. `airlab a fleet/<TAB>`).
 
 See [`usr/local/bin/docs/alias-commands.md`](usr/local/bin/docs/alias-commands.md) for the full reference.
+
+#### upgrade
+
+Self-upgrades the airlab tool to the latest version from GitHub.
+
+##### Usage
+
+```bash
+airlab upgrade [--branch <branch>] [--yes] [-- <install.sh flags>...]
+```
+
+It downloads the source (the repo recorded in `/usr/share/airlab/install_source`, default `strapsai/airlab`), removes the installed package, and runs the freshly downloaded `install.sh` **interactively** (you answer its venv / `sudo` prompts). To stay safe while removing its own package, it downloads to `/tmp` and hands off to a runner there with `exec` *before* running `dpkg -r airlab`.
+
+See [`usr/local/bin/docs/upgrade.md`](usr/local/bin/docs/upgrade.md) for the full reference.
 
 ---
 

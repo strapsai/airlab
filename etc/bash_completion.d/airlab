@@ -209,7 +209,7 @@ _airlab_completions() {
 
     # Top-level commands
     local commands="greet setup ssh exec auth ping sync launch set_env set_hosts \
-docker-build docker-up docker-join docker-list docker-clean ros2 vcs a cd --help --version"
+docker-build docker-up docker-join docker-list docker-clean ros2 vcs a cd upgrade --help --version"
 
     # Position 1: complete the sub-command
     if [[ $cword -eq 1 ]]; then

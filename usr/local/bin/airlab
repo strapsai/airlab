@@ -28,6 +28,7 @@ function show_usage() {
     echo "  set_env                       Set environment variables on local or remote machine."
     echo "  set_hosts                     Set hostnames for robots or local environment."
     echo "  cd                            Change directory relative to \$AIRLAB_PATH (shell function)."
+    echo "  upgrade                       Upgrade the airlab tool to the latest version from GitHub."
     echo "  --help                        Show this help message."
     echo "  --version                     Show the version of the airlab command."
     echo "Run 'airlab <command>' for specific command usage."
@@ -118,6 +119,10 @@ case "$COMMAND" in
     set_hosts)
         # Set hosts file
         /usr/local/bin/cmds/set_hosts "$@"
+        ;;
+    upgrade)
+        # Self-upgrade the airlab tool to the latest version from GitHub
+        /usr/local/bin/cmds/upgrade "$@"
         ;;
     --help)
         show_usage
