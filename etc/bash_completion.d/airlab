@@ -415,6 +415,11 @@ docker-build docker-up docker-join docker-list docker-clean ros2 vcs a cd upgrad
                     ;;
             esac
             ;;
+        upgrade)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=( $(compgen -W "--branch --yes --help" -- "$cur") )
+            fi
+            ;;
     esac
 
     # For options that end with '=', prevent bash from appending a space

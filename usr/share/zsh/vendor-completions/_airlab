@@ -453,6 +453,13 @@ _airlab() {
                 vcs)
                     _airlab_vcs
                     ;;
+                upgrade)
+                    _arguments -s \
+                        '--branch[branch to install from (default: main)]:branch:' \
+                        '--yes[skip the confirmation prompt]' \
+                        '-y[skip the confirmation prompt]' \
+                        '--help[show help]'
+                    ;;
             esac
             ;;
     esac
