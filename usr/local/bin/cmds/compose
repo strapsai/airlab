@@ -68,8 +68,10 @@ if [ -z "$profiles_raw" ]; then
 fi
 
 # Build the command (run from $AIRLAB_PATH/launch — the shell function cd's there).
-# Profiles are space- or comma-separated.
-cmd="docker compose --env-file ../airlab.env -f ${compose_file}"
+# No --env-file: airlab.env is already sourced/exported into the operator's shell
+# (the same assumption the launch Makefiles make), so compose interpolates ${VAR}
+# from the environment. Profiles are space- or comma-separated.
+cmd="docker compose -f ${compose_file}"
 read -r -a _profiles <<< "${profiles_raw//,/ }"
 for p in "${_profiles[@]}"; do
     [ -n "$p" ] && cmd="${cmd} --profile ${p}"

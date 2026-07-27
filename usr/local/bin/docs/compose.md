@@ -16,9 +16,11 @@ Set these per machine in `$AIRLAB_PATH/airlab.env`:
 ## How It Works
 The airlab shell function (zsh/bash) intercepts `airlab compose`, `cd`s to `$AIRLAB_PATH/launch`, and prefills:
 ```bash
-docker compose --env-file ../airlab.env -f <AIRLAB_COMPOSE_FILE> --profile <p1> --profile <p2> …
+docker compose -f <AIRLAB_COMPOSE_FILE> --profile <p1> --profile <p2> …
 ```
-onto the next prompt so you can edit it and run it:
+onto the next prompt so you can edit it and run it. (No `--env-file`: `airlab.env` is already sourced/exported into your shell, so Compose interpolates `${VAR}` from the environment — the same assumption the launch Makefiles make.)
+
+Then edit it and run it:
 - **zsh:** `print -z` pushes the line onto the editing buffer.
 - **bash:** the command is injected into the readline buffer via the terminal Device-Status-Report trick (`bind '"\e[0n": …"'; printf '\e[5n'`).
 

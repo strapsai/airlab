@@ -1041,7 +1041,7 @@ Prefills this machine's `docker compose` command (elected file + profiles from `
 airlab compose
 ```
 
-Set `AIRLAB_COMPOSE_FILE` (e.g. `docker-compose-basestation.yaml`) and `AIRLAB_COMPOSE_PROFILES` (e.g. `"fleet storage-tools"`) in `airlab.env`. The airlab shell function (zsh/bash) then `cd`s to `$AIRLAB_PATH/launch` and prefills `docker compose --env-file ../airlab.env -f <file> --profile … ` — editable, with tab-completion. Run directly (or without the shell integration), it just prints the command to copy.
+Set `AIRLAB_COMPOSE_FILE` (e.g. `docker-compose-basestation.yaml`) and `AIRLAB_COMPOSE_PROFILES` (e.g. `"fleet storage-tools"`) in `airlab.env`. The airlab shell function (zsh/bash) then `cd`s to `$AIRLAB_PATH/launch` and prefills `docker compose -f <file> --profile … ` — editable, with tab-completion. (No `--env-file`: airlab.env is already sourced into your shell.) Run directly (or without the shell integration), it just prints the command to copy.
 
 See [`usr/local/bin/docs/compose.md`](usr/local/bin/docs/compose.md) for the full reference.
 
