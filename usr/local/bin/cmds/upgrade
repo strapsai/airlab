@@ -74,12 +74,15 @@ fi
 
 # Download fresh source to /tmp — this does NOT touch the installed package.
 work="/tmp/airlab-upgrade"
-src="${work}/airlab-${branch}"   # GitHub's branch zip extracts to airlab-<branch>/
 rm -rf "$work"; mkdir -p "$work"
 log_info "Downloading ${source_url} ..."
-curl -fL -o "${work}/airlab.zip" "$source_url" || { log_error "Download failed."; exit 1; }
+curl -fL -o "${work}/airlab.zip" "$source_url" || { log_error "Download failed — check --branch (${branch})."; exit 1; }
 unzip -q -o "${work}/airlab.zip" -d "$work"    || { log_error "Unzip failed."; exit 1; }
-[ -f "${src}/install.sh" ] || { log_error "install.sh not found in the downloaded source (${src}) — check --branch."; exit 1; }
+# GitHub's archive extracts to a single top-level dir. Its name is the ref with
+# '/' replaced by '-' (so a branch like ai/vektor/foo -> airlab-ai-vektor-foo);
+# detect it rather than guessing, which is fragile for slashed branch names.
+src="$(find "$work" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+[ -n "$src" ] && [ -f "${src}/install.sh" ] || { log_error "install.sh not found in the downloaded source under ${work} — check --branch (${branch})."; exit 1; }
 chmod -R a+x "$src"
 
 # Write the remove+reinstall runner INTO /tmp and hand off with exec. Once exec'd,
