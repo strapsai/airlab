@@ -27,6 +27,26 @@ airlab() {
             target="$target/$1"
         fi
         builtin cd "$target"
+    elif [[ "${1:-}" == "compose" ]]; then
+        # Prefill this machine's `docker compose` command onto the prompt (must run in
+        # the current shell — a subprocess can't inject into the parent's input buffer).
+        shift
+        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+            command airlab compose --help
+            return 0
+        fi
+        local _cmd
+        _cmd="$(command airlab compose --emit "$@")" || return $?
+        [[ -n "${AIRLAB_PATH:-}" ]] && builtin cd "${AIRLAB_PATH}/launch" 2>/dev/null
+        if [[ $- == *i* ]]; then
+            # Inject $_cmd into the readline buffer, editable (with completion): bind the
+            # terminal's Device-Status-Report reply to type the command, then request a
+            # report so the terminal replies and triggers the macro.
+            bind '"\e[0n": "'"$_cmd"'"' 2>/dev/null
+            printf '\e[5n'
+        else
+            printf '%s\n' "$_cmd"
+        fi
     else
         command airlab "$@"
     fi
@@ -209,7 +229,7 @@ _airlab_completions() {
 
     # Top-level commands
     local commands="greet setup ssh exec auth ping sync launch set_env set_hosts \
-docker-build docker-up docker-join docker-list docker-clean ros2 vcs a cd upgrade --help --version"
+docker-build docker-up docker-join docker-list docker-clean ros2 vcs a cd compose upgrade --help --version"
 
     # Position 1: complete the sub-command
     if [[ $cword -eq 1 ]]; then

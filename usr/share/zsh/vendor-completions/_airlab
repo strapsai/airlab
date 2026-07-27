@@ -240,6 +240,7 @@ _airlab() {
         'vcs:Manage multiple repositories with common git functions'
         'a:Run a user-defined alias command'
         'cd:Change directory relative to \$AIRLAB_PATH'
+        'compose:Prefill this machine'\''s docker compose command from airlab.env'
         'upgrade:Upgrade the airlab tool to the latest version from GitHub'
     )
 

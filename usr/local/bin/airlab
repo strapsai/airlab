@@ -28,6 +28,7 @@ function show_usage() {
     echo "  set_env                       Set environment variables on local or remote machine."
     echo "  set_hosts                     Set hostnames for robots or local environment."
     echo "  cd                            Change directory relative to \$AIRLAB_PATH (shell function)."
+    echo "  compose                       Prefill this machine's 'docker compose' command from airlab.env (shell function)."
     echo "  upgrade                       Upgrade the airlab tool to the latest version from GitHub."
     echo "  --help                        Show this help message."
     echo "  --version                     Show the version of the airlab command."
@@ -119,6 +120,12 @@ case "$COMMAND" in
     set_hosts)
         # Set hosts file
         /usr/local/bin/cmds/set_hosts "$@"
+        ;;
+    compose)
+        # Prefill this machine's `docker compose` command (elected file + profiles
+        # from airlab.env). Normally intercepted by the airlab shell function, which
+        # prefills it onto the prompt; run directly it just prints the command.
+        /usr/local/bin/cmds/compose "$@"
         ;;
     upgrade)
         # Self-upgrade the airlab tool to the latest version from GitHub
