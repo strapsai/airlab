@@ -1,0 +1,87 @@
+#!/bin/bash
+# airlab compose — prepare (prefill) the `docker compose` command for this machine's
+# elected launch compose file + profiles, so the operator then drives Docker Compose
+# directly (edit the line, add `up -d` / `down` / `config`, use tab-completion). It
+# deliberately does NOT wrap Compose — it just hands you the command.
+#
+# The elected file + profiles come from airlab.env (per machine):
+#   AIRLAB_COMPOSE_FILE=docker-compose-basestation.yaml    # a file under $AIRLAB_PATH/launch/
+#   AIRLAB_COMPOSE_PROFILES="fleet storage-tools"           # space- or comma-separated
+#
+# Normally invoked through the airlab shell function (zsh/bash), which cd's to
+# $AIRLAB_PATH/launch and prefills the emitted command onto your prompt. Run directly
+# (or without the shell integration) it just prints the command for you to copy.
+
+set -uo pipefail
+
+readonly RED='\033[0;31m'
+readonly YELLOW='\033[1;33m'
+readonly NC='\033[0m'
+err() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
+
+emit=false
+[ "${1:-}" = "--emit" ] && { emit=true; shift; }
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    cat <<'EOF'
+Usage: airlab compose
+
+Prefill the `docker compose` command for this machine's elected compose file and
+profiles (from airlab.env: AIRLAB_COMPOSE_FILE, AIRLAB_COMPOSE_PROFILES) and cd to
+$AIRLAB_PATH/launch. Then edit/run it as normal Docker Compose (up -d, down, config, ...).
+
+Set in airlab.env, e.g.:
+  AIRLAB_COMPOSE_FILE=docker-compose-basestation.yaml
+  AIRLAB_COMPOSE_PROFILES="fleet storage-tools"
+EOF
+    exit 0
+fi
+
+if [ -z "${AIRLAB_PATH:-}" ]; then
+    err "AIRLAB_PATH is not set — run 'airlab setup local' first."
+    exit 1
+fi
+env_file="${AIRLAB_PATH}/airlab.env"
+if [ ! -f "$env_file" ]; then
+    err "airlab.env not found at ${env_file} — run the deployer (launch/deployer/deployer)."
+    exit 1
+fi
+
+# Read KEY=VALUE from airlab.env (last definition wins), stripping surrounding quotes.
+read_env() { sed -n "s/^$1=//p" "$env_file" | tail -1 | sed -e 's/^["'\'']//' -e 's/["'\'']$//'; }
+
+compose_file="$(read_env AIRLAB_COMPOSE_FILE)"
+profiles_raw="$(read_env AIRLAB_COMPOSE_PROFILES)"
+
+if [ -z "$compose_file" ]; then
+    err "AIRLAB_COMPOSE_FILE is not set in ${env_file}."
+    err "Set it to this machine's elected compose file, e.g. docker-compose-basestation.yaml"
+    exit 1
+fi
+if [ ! -f "${AIRLAB_PATH}/launch/${compose_file}" ]; then
+    err "AIRLAB_COMPOSE_FILE='${compose_file}' not found under ${AIRLAB_PATH}/launch/."
+    exit 1
+fi
+if [ -z "$profiles_raw" ]; then
+    err "AIRLAB_COMPOSE_PROFILES is not set in ${env_file}."
+    err "Set it to the profiles this machine runs, e.g. \"fleet storage-tools\""
+    exit 1
+fi
+
+# Build the command (run from $AIRLAB_PATH/launch — the shell function cd's there).
+# No --env-file: airlab.env is already sourced/exported into the operator's shell
+# (the same assumption the launch Makefiles make), so compose interpolates ${VAR}
+# from the environment. Profiles are space- or comma-separated.
+cmd="docker compose -f ${compose_file}"
+read -r -a _profiles <<< "${profiles_raw//,/ }"
+for p in "${_profiles[@]}"; do
+    [ -n "$p" ] && cmd="${cmd} --profile ${p}"
+done
+cmd="${cmd} "   # trailing space so you type the subcommand (up -d / down / config / ...)
+
+if [ "$emit" = true ]; then
+    printf '%s' "$cmd"
+else
+    printf '%s\n' "$cmd"
+    echo -e "${YELLOW}[tip]${NC} Run the above from \$AIRLAB_PATH/launch — or use the airlab shell" >&2
+    echo -e "      integration (zsh/bash) so 'airlab compose' cd's there and prefills it for you." >&2
+fi

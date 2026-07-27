@@ -13,7 +13,7 @@ apt-get install -y sudo
 # Follow README instructions
 
 chmod -R a+rX *
-sudo apt-get install -y curl dpkg-dev git lsb-release openssh-server python3-pip rsync sshpass tmux tmuxp
+sudo apt-get install -y curl unzip dpkg-dev git lsb-release openssh-server python3-pip rsync sshpass tmux tmuxp
 
 # Install Docker (user should do this manually)
 

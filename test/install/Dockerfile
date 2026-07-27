@@ -9,7 +9,7 @@ COPY airlab.deb /tmp/airlab.deb
 # Install the package's Pre-Depends, then the package itself.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      curl lsb-release openssh-server rsync sshpass tmux tmuxp git ca-certificates \
+      curl unzip lsb-release openssh-server rsync sshpass tmux tmuxp git ca-certificates \
  && dpkg -i /tmp/airlab.deb \
  && rm -f /tmp/airlab.deb \
  && apt-get clean && rm -rf /var/lib/apt/lists/*

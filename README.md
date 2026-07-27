@@ -18,9 +18,12 @@
     *   [Sync](#sync)
     *   [Launch](#launch)
     *   [Docker Commands](#docker-commands)
+    *   [ros2](#ros2)
     *   [Version Control Commands](#vcs-commands)
     *   [Alias Commands (`airlab a`)](#alias-commands)
     *   [cd](#cd)
+    *   [compose](#compose)
+    *   [upgrade](#upgrade)
 *   [Workspace Structure](#workspace-structure)
     *   [Overview](#overview-1)
     *   [Directory Structure](#directory-structure)
@@ -151,8 +154,10 @@ This command configures either the local environment or a remote robot system.
 #### Usage
 
 ```bash
-airlab setup local [--path=<install_path>] [--force]
+# Local setup provisions this machine system-wide, so it must run as root:
+sudo airlab setup local [--path=<install_path>] [--force]
 
+# Remote setup runs as your normal user (no local sudo) and elevates ON THE ROBOT:
 airlab setup <robot_name> [--path=<install_path>] [--force] [--password]
 ```
 
@@ -163,6 +168,18 @@ airlab setup <robot_name> [--path=<install_path>] [--force] [--password]
 *   `--password`: Skip key-based SSH authentication and prompt for a password directly (remote setup only).
 *   `<robot_name>`: Robot identifier, as defined in `robots.yaml`.
 
+#### Privileges
+
+*   **Local** (`setup local`) provisions this machine system-wide (system paths,
+    packages, the workspace pointer under `/etc/airlab`), so it **must run as root** —
+    use `sudo airlab setup local`.
+*   **Remote** (`setup <robot_name>`) runs as **your normal user** — its local git/rsync
+    steps read *your* repo and use *your* SSH keys, which must not be run as root. It
+    elevates only **on the robot**, over SSH, when a step there needs root. Supply that
+    robot-side sudo password via `--password`, the `AIRLAB_SUDO_PASSWORD` environment
+    variable, or an interactive prompt (the robot's sudo password is used only if the
+    robot lacks passwordless sudo).
+
 #### Configuration Files
 
 *   Robot registry: `robots.yaml` in the workspace's `robot` folder.
@@ -172,11 +189,11 @@ airlab setup <robot_name> [--path=<install_path>] [--force] [--password]
 #### Quick Examples
 
 ```bash
-# Local setup
-airlab setup local --path=/opt/airlab_ws
-airlab setup local --force
+# Local setup (root)
+sudo airlab setup local --path=/opt/airlab_ws
+sudo airlab setup local --force
 
-# Remote setup
+# Remote setup (your user; sudo is used only on the robot)
 airlab setup robot1 --path=/home/airlab/ws
 airlab setup robot1 --force
 ```
@@ -619,6 +636,57 @@ Detailed documentation is available [here](/usr/local/bin/docs/docker-commands.m
 
 ---
 
+### ros2
+
+Pass-through wrapper that runs an arbitrary `ros2` sub-command inside a transient Docker container, then stops and removes the container when the command exits (via `docker run --rm`). Intended for quick one-shots — bag inspection, topic/node/param introspection, `doctor` — not for replacing the long-running compose workflow.
+
+`--network=host` is set so DDS discovery reaches nodes already running on the host, and `/opt/ros/*/setup.bash` is sourced inside the container (so it works on CUDA-base images that don't put `ros2` on `PATH`). A TTY is allocated only when both stdin and stdout are terminals, so piping works.
+
+#### Usage
+
+```bash
+airlab ros2 [--image=<image>] <ros2-command> [args...]
+```
+
+Wrapper-specific flags must appear **before** the `ros2` sub-command. Once a non-wrapper token is seen, every remaining argument is passed through to `ros2` inside the container — so `airlab ros2 bag --help` forwards `--help` to `ros2 bag`, not to the wrapper.
+
+#### Wrapper Options
+
+*   `--image=<image>`: Use a specific Docker image. Default: the value of `AIRLAB_DEFAULT_IMAGE` from your `airlab.env`.
+*   `--help`: Show the wrapper's help message.
+
+#### Environment (set in `$AIRLAB_PATH/airlab.env`)
+
+*   `AIRLAB_DEFAULT_IMAGE`: Docker image to run. **Required** (via this var or `--image=`); machine-specific, e.g. `x86-final:basestation`. If unset/empty and no `--image=` is given, the command errors and tells you to set it.
+*   `AIRLAB_DEFAULT_DOCKER_VOLUMES`: Space-separated list of host folders to bind-mount into the container (may be empty). When non-empty, **every** folder must exist and be writable by your user, or the command errors and does not start a container.
+
+#### Volumes
+
+Always mounted (same path inside and out): `$AIRLAB_PATH`, the current working directory (`-w $PWD`), plus each folder in `AIRLAB_DEFAULT_DOCKER_VOLUMES`. The workspace `airlab.env` is **resolved on the host** and its variables are injected into the container (via `--env-file`), so lazy references like `${HOME}`, `${USER}`, and `$(id -gn)` expand against *you*, not the container's identity.
+
+#### DDS middleware / RMW
+
+The wrapper does not force a middleware. Set `RMW_IMPLEMENTATION` in `airlab.env` to choose one (it is exported into the container). The container does **not** inherit your host shell, so setting it only in your terminal has no effect — put it in `airlab.env` (or the image's own `ENV`). The image must contain the matching RMW package, and every participant on the network must use the same RMW/domain to communicate over `--network=host`.
+
+For RTI Connext (`RMW_IMPLEMENTATION=rmw_connextdds`), the RMW is an overlay that needs its own setup sourced on top of the base ROS environment. When that RMW is selected, the wrapper automatically sources it — default `/opt/rmw_connextdds/install/setup.bash`, overridable with `AIRLAB_ROS2_CONNEXT_SETUP`. If the file is absent, it warns and continues (so `ros2`'s own error surfaces).
+
+#### Quick Examples
+
+```bash
+airlab ros2 bag info ./recording                # inspect a bag in the current dir
+airlab ros2 topic list                          # list topics on the host
+airlab ros2 --image=x86-final:basestation \
+    run my_pkg my_node                          # pin a specific image
+airlab ros2 topic list | grep tf                # pipes cleanly (no TTY error)
+```
+
+#### Dependencies
+
+*   `docker`
+*   A Docker image, via `AIRLAB_DEFAULT_IMAGE` or `--image=`.
+
+---
+
 ### VCS Commands
 
 This section describes commands for interacting with version control systems. This is based on [vcstool](https://github.com/dirk-thomas/vcstool) which is developed by Thomas Dirk. These tools lets you deal with multiple repositories at the same time.
@@ -962,6 +1030,34 @@ Every alias must declare two header comments and handle `--help`:
 `airlab a <TAB>` lists alias names (sub-groups shown with a trailing `/`, leaf aliases with the extension stripped) and supports nested completion (e.g. `airlab a fleet/<TAB>`).
 
 See [`usr/local/bin/docs/alias-commands.md`](usr/local/bin/docs/alias-commands.md) for the full reference.
+
+#### compose
+
+Prefills this machine's `docker compose` command (elected file + profiles from `airlab.env`) onto your prompt, so you drive Docker Compose directly.
+
+##### Usage
+
+```bash
+airlab compose
+```
+
+Set `AIRLAB_COMPOSE_FILE` (e.g. `docker-compose-basestation.yaml`) and `AIRLAB_COMPOSE_PROFILES` (e.g. `"fleet storage-tools"`) in `airlab.env`. The airlab shell function (zsh/bash) then `cd`s to `$AIRLAB_PATH/launch` and prefills `docker compose -f <file> --profile … ` — editable, with tab-completion. (No `--env-file`: airlab.env is already sourced into your shell.) Run directly (or without the shell integration), it just prints the command to copy.
+
+See [`usr/local/bin/docs/compose.md`](usr/local/bin/docs/compose.md) for the full reference.
+
+#### upgrade
+
+Self-upgrades the airlab tool to the latest version from GitHub.
+
+##### Usage
+
+```bash
+airlab upgrade [--branch <branch>] [--yes] [-- <install.sh flags>...]
+```
+
+It downloads the source (the repo recorded in `/usr/share/airlab/install_source`, default `strapsai/airlab`), removes the installed package, and runs the freshly downloaded `install.sh` **interactively** (you answer its venv / `sudo` prompts). To stay safe while removing its own package, it downloads to `/tmp` and hands off to a runner there with `exec` *before* running `dpkg -r airlab`.
+
+See [`usr/local/bin/docs/upgrade.md`](usr/local/bin/docs/upgrade.md) for the full reference.
 
 ---
 

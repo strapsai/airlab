@@ -36,7 +36,17 @@ cd ~airlab-ci/actions-runner
 sudo ./bin/installdependencies.sh    # only if config/run complains about libicu etc.
 sudo ./svc.sh install airlab-ci && sudo ./svc.sh start
 ```
-Verify: repo → Settings → Actions → Runners shows the Jetson **Idle** with the labels above; and as airlab-ci `docker ps` works without sudo (re-login if the group isn't active yet).
+**Verify the runner labels.** `config.sh --labels` sometimes does NOT apply the custom
+label (only the auto `self-hosted/Linux/ARM64` stick). The `e2e` job needs **all** of
+`self-hosted, linux, arm64, airlab-operator`, so a missing custom label leaves the job
+**queued forever on an otherwise-idle runner**:
+```bash
+gh api repos/strapsai/airlab/actions/runners --jq '.runners[]|{name,status,labels:[.labels[].name]}'
+# if airlab-operator is missing, add it (Settings → Actions → Runners → edit labels, or):
+gh api --method POST repos/strapsai/airlab/actions/runners/<ID>/labels -f "labels[]=airlab-operator"
+```
+Also confirm the runner shows **Idle**, and (as airlab-ci) `docker ps` works without sudo
+(re-login if the docker group isn't active yet).
 
 ## Machine B — sacrificial robot
 ```bash
@@ -65,6 +75,13 @@ Verify A→B (as airlab-ci): `ssh <ROBOT_USER>@<B_IP> 'hostname && docker versio
 
 The e2e job sets `AIRLAB_TEST_ROBOT_AVAILABLE=1` and passes these through; if they're
 absent the e2e tests **skip** cleanly.
+
+## When the CI triggers fire (important)
+`schedule` (nightly `0 8 * * *` UTC) and `workflow_dispatch` only fire when
+`tests.yml` is on the repo's **default branch** (`main`) — GitHub ignores them on
+other branches. So the e2e CI stays dormant until the workflow promotes
+dev → test → main; until then, run e2e directly on Machine A (below). e2e never
+runs on `pull_request` (by design — no PR/fork code on the self-hosted runner).
 
 ## Run e2e manually
 - CI: Actions → **tests** → **Run workflow** (`workflow_dispatch`), or wait for the nightly schedule.

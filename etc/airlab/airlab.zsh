@@ -25,6 +25,22 @@ airlab() {
             target="$target/$1"
         fi
         builtin cd "$target"
+    elif [[ "${1:-}" == "compose" ]]; then
+        # Prefill this machine's `docker compose` command onto the prompt (must run in
+        # the current shell — a subprocess can't inject into the parent's input buffer).
+        shift
+        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+            command airlab compose --help
+            return 0
+        fi
+        local _cmd
+        _cmd="$(command airlab compose --emit "$@")" || return $?
+        [[ -n "${AIRLAB_PATH:-}" ]] && builtin cd "${AIRLAB_PATH}/launch" 2>/dev/null
+        if [[ -o interactive ]]; then
+            print -z "$_cmd"     # push onto the editing buffer: appears editable at the next prompt
+        else
+            print -r -- "$_cmd"
+        fi
     else
         command airlab "$@"
     fi

@@ -5,6 +5,8 @@ set -euo pipefail
 
 # Shared SSH-address resolution (--address via robots.yaml)
 source "$(dirname "$0")/_lib/resolve.sh"
+# Remote sudo that works for key- or password-based SSH and NOPASSWD or password sudo.
+source "$(dirname "$0")/_lib/remote_sudo.sh"
 
 # Color codes for output
 readonly RED='\033[0;31m'
@@ -381,15 +383,21 @@ set_remote_hosts() {
     backup_suffix=$(date +"%Y%m%d_%H%M%S")
     local backup_path="${HOSTS_FILE}_${backup_suffix}"
     log_info "Creating remote backup: $backup_path"
-    "${SSHPASS_PREFIX[@]}" ssh -o StrictHostKeyChecking=no "$ssh_address" \
-        "sudo cp $HOSTS_FILE $backup_path" || {
+    remote_sudo "$ssh_address" "cp $HOSTS_FILE $backup_path" || {
         log_error "Failed to create backup on $ssh_address"
         exit 1
     }
 
-    # Write the updated hosts file on remote
+    # Write the updated hosts file on remote. Stage it to a temp file first (no
+    # sudo, so stdin carries the content), then sudo-install it (remote_sudo uses
+    # stdin for the password) — the two can't share stdin.
+    local remote_tmp="/tmp/airlab_hosts.$$"
     echo "$new_hosts" | "${SSHPASS_PREFIX[@]}" ssh -o StrictHostKeyChecking=no "$ssh_address" \
-        "sudo tee $HOSTS_FILE > /dev/null" || {
+        "cat > $remote_tmp" || {
+        log_error "Failed to stage new $HOSTS_FILE on $ssh_address"
+        exit 1
+    }
+    remote_sudo "$ssh_address" "install -m 0644 $remote_tmp $HOSTS_FILE && rm -f $remote_tmp" || {
         log_error "Failed to update $HOSTS_FILE on $ssh_address"
         exit 1
     }

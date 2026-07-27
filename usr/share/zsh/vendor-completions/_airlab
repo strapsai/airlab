@@ -236,9 +236,12 @@ _airlab() {
         'docker-join:Attach to a running Docker container'
         'docker-list:List active Docker containers'
         'docker-clean:Stop and remove all Docker containers'
+        'ros2:Run a ros2 command inside a transient Docker container'
         'vcs:Manage multiple repositories with common git functions'
         'a:Run a user-defined alias command'
         'cd:Change directory relative to \$AIRLAB_PATH'
+        'compose:Prefill this machine'\''s docker compose command from airlab.env'
+        'upgrade:Upgrade the airlab tool to the latest version from GitHub'
     )
 
     local state line
@@ -424,6 +427,16 @@ _airlab() {
                         '--help[show help]'
                     ;;
 
+                ros2)
+                    # Wrapper flags are only meaningful at position 2; after
+                    # that, args pass through to ros2 inside the container.
+                    if (( CURRENT == 2 )); then
+                        _arguments -s \
+                            '--image=[Docker image to run]:image:' \
+                            '--help[show help]'
+                    fi
+                    ;;
+
                 cd)
                     _airlab_complete_cd
                     ;;
@@ -440,6 +453,13 @@ _airlab() {
 
                 vcs)
                     _airlab_vcs
+                    ;;
+                upgrade)
+                    _arguments -s \
+                        '--branch[branch to install from (default: main)]:branch:' \
+                        '--yes[skip the confirmation prompt]' \
+                        '-y[skip the confirmation prompt]' \
+                        '--help[show help]'
                     ;;
             esac
             ;;
