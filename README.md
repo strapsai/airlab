@@ -22,6 +22,7 @@
     *   [Version Control Commands](#vcs-commands)
     *   [Alias Commands (`airlab a`)](#alias-commands)
     *   [cd](#cd)
+    *   [upgrade](#upgrade)
 *   [Workspace Structure](#workspace-structure)
     *   [Overview](#overview-1)
     *   [Directory Structure](#directory-structure)
