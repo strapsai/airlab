@@ -5,6 +5,8 @@ set -uo pipefail
 
 # Shared SSH-address resolution (--address via robots.yaml)
 source "$(dirname "$0")/_lib/resolve.sh"
+# Remote sudo that works for key/password SSH and NOPASSWD/password sudo.
+source "$(dirname "$0")/_lib/remote_sudo.sh"
 
 # Color codes for output
 readonly RED='\033[0;31m'
@@ -76,12 +78,17 @@ sync_time() {
     local current_time
     current_time=$(date "+%Y-%m-%d %H:%M:%S")
 
-    # Try to set the time on the remote system
-    if ! "${sshpass_prefix[@]}" ssh "$ssh_address" "sudo date -s \"$current_time\"" >/dev/null 2>&1; then
+    # Try to set the time on the remote system. Both attempts elevate through
+    # remote_sudo, which probes NOPASSWD first and otherwise feeds the password to
+    # `sudo -S` on stdin. The password must never be interpolated into the remote
+    # command string: unquoted it word-splits and globs (and an empty one silently
+    # became `echo | sudo -S`), quote characters break the command outright, and it
+    # shows up in `ps` for every user on the robot.
+    if ! remote_sudo "$ssh_address" "date -s \"$current_time\"" >/dev/null 2>&1; then
         log_warn "Failed to sync time using date command, trying hwclock..."
 
         # If date command fails, try using hwclock
-        if ! "${sshpass_prefix[@]}" ssh "$ssh_address" "echo $password | sudo -S hwclock --systohc" >/dev/null 2>&1; then
+        if ! remote_sudo "$ssh_address" "hwclock --systohc" >/dev/null 2>&1; then
             log_error "Failed to sync system time"
             return 1
         fi
