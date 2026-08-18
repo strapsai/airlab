@@ -131,6 +131,72 @@ _airlab_complete_alias() {
     done
 }
 
+# Sub-dispatcher for `airlab env`.
+_airlab_env() {
+    local -a env_commands
+    env_commands=(
+        'show:Print the airlab.env of this machine or a remote one'
+        'compare:Diff the local robot_info.yaml record against a machine live airlab.env'
+        'sync-from:Update the local robot_info.yaml from the remote airlab.env'
+        'sync-to:Update the remote airlab.env from the local robot_info.yaml'
+        'set:Set one variable (VAR=value)'
+    )
+
+    local state line context
+    typeset -A opt_args
+
+    _arguments -C \
+        '1:env command:->envcmd' \
+        '*::env args:->envargs'
+
+    case "$state" in
+        envcmd)
+            _describe 'env command' env_commands
+            compadd -- --help
+            ;;
+        envargs)
+            local env_cmd="${line[1]}"
+            # Position 2 is the target. show/set also act on this machine;
+            # compare/sync-from/sync-to are inherently about a remote one.
+            if (( CURRENT == 2 )); then
+                case "$env_cmd" in
+                    show|set) _airlab_complete_targets ;;
+                    compare|sync-from|sync-to) _airlab_complete_robots ;;
+                esac
+                compadd -- --help
+                return
+            fi
+            # Shift so words[1] is the target, which _airlab_complete_addresses reads.
+            shift words
+            (( CURRENT-- ))
+            case "$env_cmd" in
+                show|compare)
+                    _arguments -s \
+                        '--address=[network address from robots.yaml]:address:_airlab_complete_addresses' \
+                        '--password[use password auth]' \
+                        '--help[show help]'
+                    ;;
+                sync-from|sync-to)
+                    _arguments -s \
+                        '--address=[network address from robots.yaml]:address:_airlab_complete_addresses' \
+                        '--password[use password auth]' \
+                        '--prune[also remove keys the source lacks]' \
+                        '--dry-run[report what would change, write nothing]' \
+                        '-y[do not prompt for confirmation]' \
+                        '--yes[do not prompt for confirmation]' \
+                        '--help[show help]'
+                    ;;
+                set)
+                    _arguments -s \
+                        '--address=[network address from robots.yaml]:address:_airlab_complete_addresses' \
+                        '--password[use password auth]' \
+                        '--help[show help]'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
 _airlab_vcs() {
     local -a vcs_commands
     vcs_commands=(
@@ -229,7 +295,7 @@ _airlab() {
         'ping:Ping a remote robot'
         'sync:Synchronize code to a remote machine'
         'launch:Launch a robot configuration'
-        'set_env:Set environment variables on local or remote machine'
+        'env:Inspect and synchronise environment variables'
         'set_hosts:Set hostnames for robots or local environment'
         'docker-build:Build Docker images using docker-compose'
         'docker-up:Start Docker containers using docker-compose'
@@ -357,19 +423,8 @@ _airlab() {
                         '--help[show help]'
                     ;;
 
-                set_env)
-                    if (( CURRENT == 2 )); then
-                        _airlab_complete_targets
-                        compadd -- --help -h
-                        return
-                    fi
-                    shift words
-                    (( CURRENT-- ))
-                    _arguments -s \
-                        '--address=[network address from robots.yaml]:address:_airlab_complete_addresses' \
-                        '--password[use password auth]' \
-                        '--help[show help]' \
-                        '-h[show help]'
+                env)
+                    _airlab_env
                     ;;
 
                 set_hosts)

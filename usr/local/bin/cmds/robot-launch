@@ -27,7 +27,7 @@ show_usage() {
     echo
     echo -e "${YELLOW}Options:${NC}"
     echo "  --yaml_file=<file_name>   Yaml Launch file. Defaults to LAUNCH_FILE_PATH which points to the launch file in the robot's workspace."
-    echo "  You can change the default launch file path by setting the LAUNCH_FILE_PATH environment variable using airlab set_env command."
+    echo "  You can change the default launch file path by setting the LAUNCH_FILE_PATH environment variable using 'airlab env set'."
     echo "  --stop                    Stop the tmux session instead of starting it"
     echo "  --address=<name>          Use a named network address from robots.yaml (e.g. internet)"
     echo "  --password                Skip key-based SSH and prompt for password directly"
