@@ -673,11 +673,15 @@ setup_remote() {
             install_flags=" --override-venv"
         fi
         # Prime sudo's timestamp in the SAME ssh -tt session so install.sh's internal
-        # sudo calls reuse it. Password via the shared source (robot_password/env/prompt);
-        # empty is fine on a NOPASSWD robot.
-        local sudo_pw; sudo_pw="$(_airlab_sudo_pw 2>/dev/null || true)"
-        "${SSHPASS_PREFIX[@]}" ssh -tt -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" "echo '$sudo_pw' | sudo -S echo HERE && bash /tmp/airlab-main/install.sh${install_flags}" \
-            || error_exit "Failed to run install.sh on $robot_ssh_address"
+        # sudo calls reuse it. remote_sudo_prime asks for a password only if the robot's
+        # sudo actually needs one, and never puts it on a remote command line.
+        remote_sudo_prime "$robot_ssh_address" \
+            || error_exit "Could not prepare sudo on $robot_ssh_address"
+        "${SSHPASS_PREFIX[@]}" ssh -tt -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" "$REMOTE_SUDO_PRIME_CMD && bash /tmp/airlab-main/install.sh${install_flags}"
+        local install_rc=$?
+        remote_sudo_prime_cleanup "$robot_ssh_address" \
+            || log_warn "Could not remove the temporary sudo askpass dir on $robot_ssh_address; check /tmp/airlab-askpass.* there."
+        [ "$install_rc" -eq 0 ] || error_exit "Failed to run install.sh on $robot_ssh_address"
 
         # install.sh already builds a CLEAN .deb (from its own staging dir) and installs it.
         # The legacy online path additionally rebuilt+reinstalled the raw /tmp/airlab-main and
