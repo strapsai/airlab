@@ -1,4 +1,3 @@
-robots:
   robotA:
     robot_ssh: "dtc@10.0.0.10"
     ws_path: "/home/dtc/airlab_ws"

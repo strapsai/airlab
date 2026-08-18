@@ -2,6 +2,10 @@
 
 # Shared SSH-address resolution (--address via robots.yaml)
 source "$(dirname "$0")/_lib/resolve.sh"
+# Shared robot_info.yaml access (update_robot_info)
+source "$(dirname "$0")/_lib/robot_info.sh"
+# Safe KEY=VALUE editing of airlab.env.
+source "$(dirname "$0")/_lib/env_file.sh"
 
 # Color codes for output
 readonly RED='\033[0;31m'
@@ -112,56 +116,6 @@ ssh_authenticate() {
     return 0
 }
 
-update_robot_info() {
-    local robot_info_file="$1"
-    local robot_name="$2"
-    local field="$3"
-    local value="$4"
-    local no_overwrite="$5"
-
-    ROBOT_INFO_FILE="$robot_info_file/robot/robot_info.yaml"
-    
-    # Create YAML file if it doesn't exist
-    if [ ! -f "$ROBOT_INFO_FILE" ]; then
-        echo "robots:" > "$ROBOT_INFO_FILE"
-    fi
-    
-    # Get current timestamp
-    local timestamp
-    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    
-    # Check if robot already exists in YAML
-    if grep -q "^  $robot_name:" "$ROBOT_INFO_FILE"; then
-        # Check if field exists for this robot
-        if grep -q "^    $field:" <(sed -n "/^  $robot_name:/,/^  [^[:space:]]/p" "$ROBOT_INFO_FILE"); then
-            # Update existing field
-            if [ "$no_overwrite" = "--no-overwrite" ]; then
-                log_warn "Skipped updating $robot_name $field as --no-overwrite is set"
-            else
-                # Update existing field
-                sed -i "/^  $robot_name:/,/^  [^[:space:]]/ {
-                    s|^    $field:.*|    $field: \"$value\"|
-                }" "$ROBOT_INFO_FILE"
-            fi
-        else
-            # Add new field to existing robot
-            sed -i "/^  $robot_name:/a\    $field: \"$value\"" "$ROBOT_INFO_FILE"
-        fi
-        # Always update last_updated timestamp
-        sed -i "/^  $robot_name:/,/^  [^[:space:]]/ {
-            s|^    last_updated:.*|    last_updated: \"$timestamp\"|
-        }" "$ROBOT_INFO_FILE"
-    else
-        # Add new robot entry with the field
-        cat >> "$ROBOT_INFO_FILE" << EOF
-  $robot_name:
-    $field: "$value"
-    last_updated: "$timestamp"
-EOF
-    fi
-    log_info "Updated robot $robot_name $field in $ROBOT_INFO_FILE"
-}
-
 set_env_local() {
     set -e  # Exit immediately if a command exits with a non-zero status
 
@@ -178,8 +132,7 @@ set_env_local() {
     # Parse the variable name and value
     local ENV_VARIABLE="${input%%=*}"
     local ENV_VALUE="${input#*=}"
-    ENV_VALUE="${ENV_VALUE%\"}"  # Remove trailing quote
-    ENV_VALUE="${ENV_VALUE#\"}"  # Remove leading quote
+    ENV_VALUE="$(strip_paired_quotes "$ENV_VALUE")"
 
     # Check if the environment file exists
     if [ ! -f "$ENV_FILE" ]; then
@@ -187,12 +140,18 @@ set_env_local() {
         touch "$ENV_FILE"
     fi
 
-    # Check if the variable exists in the environment file
-    if grep -q "^$ENV_VARIABLE=" "$ENV_FILE"; then
-        sed -i "s|^$ENV_VARIABLE=.*|$ENV_VARIABLE=$ENV_VALUE|" "$ENV_FILE"
+    # Replace the existing line or append a new one. env_file_set compares by prefix
+    # and carries the value through the environment, so a value containing '|', '&'
+    # or a backslash is written literally instead of being re-interpreted.
+    local existed=false
+    grep -q "^$ENV_VARIABLE=" "$ENV_FILE" && existed=true
+    if ! env_file_set "$ENV_FILE" "$ENV_VARIABLE" "$ENV_VALUE"; then
+        log_error "Failed to write $ENV_VARIABLE to $ENV_FILE"
+        exit 1
+    fi
+    if [ "$existed" = true ]; then
         log_info "Updated $ENV_VARIABLE in $ENV_FILE"
     else
-        echo "$ENV_VARIABLE=$ENV_VALUE" >> "$ENV_FILE"
         log_info "Added $ENV_VARIABLE to $ENV_FILE"
     fi
 }
@@ -252,11 +211,11 @@ set_env_remote() {
 
     source ~/.bashrc
 
-    # Parse the variable name and value
+    # Parse the variable name and value (same rule as set_env_local, so the record in
+    # robot_info.yaml matches what was written into the machine's airlab.env)
     local ENV_VARIABLE_NAME="${ENV_VARIABLE%%=*}"
-    local ENV_VALUE="${ENV_VARIABLE#*=}"
-    ENV_VALUE="${ENV_VALUE%\"}"  # Remove trailing quote
-    ENV_VALUE="${ENV_VALUE#\"}"  # Remove leading quote
+    local ENV_VALUE
+    ENV_VALUE="$(strip_paired_quotes "${ENV_VARIABLE#*=}")"
     log_info "Setting $ENV_VARIABLE_NAME=$ENV_VALUE on $SYSTEM_NAME"
     update_robot_info "$AIRLAB_PATH" "$SYSTEM_NAME" "$ENV_VARIABLE_NAME" "$ENV_VALUE" 
 }
