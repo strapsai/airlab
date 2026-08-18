@@ -25,7 +25,7 @@ function show_usage() {
     echo "  ssh                           Connect to a remote machine using SSH."
     echo "  exec                          Run a single command on a remote machine (remote-side expansion)."
     echo "  auth                          Install SSH public key on a remote robot for password-less access."
-    echo "  set_env                       Set environment variables on local or remote machine."
+    echo "  env                           Inspect and synchronise environment variables (see 'airlab env --help')."
     echo "  set_hosts                     Set hostnames for robots or local environment."
     echo "  cd                            Change directory relative to \$AIRLAB_PATH (shell function)."
     echo "  compose                       Prefill this machine's 'docker compose' command from airlab.env (shell function)."
@@ -113,9 +113,18 @@ case "$COMMAND" in
         # Install SSH public key on a remote robot
         /usr/local/bin/cmds/auth "$@"
         ;;
+    env)
+        # Inspect and synchronise environment variables (airlab.env <-> robot_info.yaml)
+        /usr/local/bin/cmds/env "$@"
+        ;;
     set_env)
-        # Set environment variables
-        /usr/local/bin/cmds/set_env "$@"
+        # Removed in favour of `airlab env set`. Kept only to point the way, since
+        # this name is in muscle memory, in scripts, and in older robot_info notes.
+        echo "airlab set_env has been replaced by 'airlab env set'." >&2
+        echo "  airlab env set local  VAR=value" >&2
+        echo "  airlab env set <system> VAR=value" >&2
+        echo "Run 'airlab env --help' for the rest of the env subcommands." >&2
+        exit 1
         ;;
     set_hosts)
         # Set hosts file

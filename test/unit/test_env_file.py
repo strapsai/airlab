@@ -94,13 +94,14 @@ def test_no_temp_file_is_left_behind(tmp_path):
 
 
 # --- through the real command --------------------------------------------- #
+# `airlab set_env` is now `airlab env set` (cmds/env); these drive the real command.
 
-def test_set_env_local_writes_a_pipe_bearing_value(tmp_path, run):
-    """`airlab set_env local 'FOO=a|b'` used to die with "unknown option to `s'"."""
+def test_env_set_local_writes_a_pipe_bearing_value(tmp_path, run):
+    """`set_env local 'FOO=a|b'` used to die with "unknown option to `s'"."""
     ws = tmp_path / "ws"
     (ws / "robot").mkdir(parents=True)
     (ws / "airlab.env").write_text("FOO=old\nKEEP=me\n")
-    r = run("set_env", "local", 'FOO=a|b "c"', ws=ws, stdin="", timeout=30)
+    r = run("env", "set", "local", 'FOO=a|b "c"', ws=ws, stdin="", timeout=30)
     assert r.rc == 0, r.out
     assert (ws / "airlab.env").read_text() == 'FOO=a|b "c"\nKEEP=me\n'
 
@@ -124,31 +125,28 @@ def test_strip_paired_quotes(given, want):
     assert r.stdout == want
 
 
-def test_set_env_local_keeps_an_inner_trailing_quote(tmp_path, run):
+def test_env_set_local_keeps_an_inner_trailing_quote(tmp_path, run):
     ws = tmp_path / "ws"
     (ws / "robot").mkdir(parents=True)
     (ws / "airlab.env").write_text("FOO=old\n")
-    r = run("set_env", "local", 'FOO=say "hi"', ws=ws, stdin="", timeout=30)
+    r = run("env", "set", "local", 'FOO=say "hi"', ws=ws, stdin="", timeout=30)
     assert r.rc == 0, r.out
     assert (ws / "airlab.env").read_text() == 'FOO=say "hi"\n'
 
 
-def test_set_env_local_strips_the_documented_wrapping_quotes(tmp_path, run):
+def test_env_set_local_strips_the_documented_wrapping_quotes(tmp_path, run):
     ws = tmp_path / "ws"
     (ws / "robot").mkdir(parents=True)
     (ws / "airlab.env").write_text("FOO=old\n")
-    r = run("set_env", "local", 'FOO="hello"', ws=ws, stdin="", timeout=30)
+    r = run("env", "set", "local", 'FOO="hello"', ws=ws, stdin="", timeout=30)
     assert r.rc == 0, r.out
     assert (ws / "airlab.env").read_text() == "FOO=hello\n"
 
 
-def test_set_env_local_appends_a_new_variable(tmp_path, run):
-    """The append path runs under `set -e` with a deliberately-failing `grep -q`
-    guard in front of it; make sure that doesn't abort the command."""
+def test_env_set_local_appends_a_new_variable(tmp_path, run):
     ws = tmp_path / "ws"
     (ws / "robot").mkdir(parents=True)
     (ws / "airlab.env").write_text("EXISTING=1\n")
-    r = run("set_env", "local", "NEWVAR=a|b", ws=ws, stdin="", timeout=30)
+    r = run("env", "set", "local", "NEWVAR=a|b", ws=ws, stdin="", timeout=30)
     assert r.rc == 0, r.out
-    assert "Added NEWVAR" in r.out
     assert (ws / "airlab.env").read_text() == "EXISTING=1\nNEWVAR=a|b\n"

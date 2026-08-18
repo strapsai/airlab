@@ -22,7 +22,8 @@ usr/local/bin/
     docker-up                     # Start Docker containers
     docker-join                   # Attach to running containers
     docker-list                   # List Docker containers/images
-    set_env                       # Set environment variables
+    env                           # Inspect/sync environment variables
+                                  #   (show/compare/sync-from/sync-to/set)
     _lib/
       resolve.sh                  # Shared SSH-address resolution via robots.yaml
       remote_sudo.sh              # Remote sudo over SSH (key/password × NOPASSWD/password)
@@ -58,6 +59,7 @@ etc/bash_completion.d/
 - **Remote sudo**: always elevate through `_lib/remote_sudo.sh` — `remote_sudo` for a one-off command, or `remote_sudo_prime` when the caller needs its own `ssh -tt` pty so sudo's tty-keyed timestamp carries into a script's internal sudo calls (that's what `airlab setup <robot>` does for `install.sh`). Both probe `sudo -n true` first, so a NOPASSWD robot is never asked for a password it doesn't need. **Never interpolate a sudo password into a remote command string** (`ssh host "echo $pw | sudo -S ..."`): quote characters break the command and `ps` exposes the password to every user on the robot. **Never pipe it into an `ssh -tt` session either** — the remote pty echoes it onto the operator's screen. Feed it on the stdin of a non-pty session (`remote_sudo`) or via a staged 0600 `SUDO_ASKPASS` helper (`remote_sudo_prime`).
 - **Interactive prompts**: `_airlab_sudo_pw` writes its prompt to `/dev/tty`, not stderr, because callers capture it with `$(...)`. Any prompt a caller might redirect away has to do the same, or it becomes a silent hang on an invisible question.
 - **YAML parsing**: Done via inline `python3 -c "import yaml; ..."` calls. PyYAML is a dependency.
+- **`airlab env`**: the one place that moves environment variables between a machine's `airlab.env` and the operator-side `robot_info.yaml` record (`show` / `compare` / `sync-from` / `sync-to` / `set`). It reads `airlab.env` as **text and never sources it**, so shell literals like `${SUDO_USER:-$USER}` round-trip instead of freezing one host's expansion into the shared record. Replaced `airlab set_env`, whose dispatcher arm now just points at `airlab env set`.
 - **`robot_info.yaml`**: system names sit at the **top level** — there is no `robots:` root key, and readers look fields up as `<system>.<field>`. `ws_path`, `robot_ssh` and `last_updated` are bookkeeping, not environment variables, and are excluded when regenerating a machine's `airlab.env`. All access goes through `_lib/robot_info.sh`; do not re-add a second writer.
 - **Never edit config files with `sed -i "s|...|$value|"`**: the value lands in the replacement text, so `|` aborts the command and `&` or a backslash is silently rewritten. Use `env_file_set` for `airlab.env` and `update_robot_info` for `robot_info.yaml` — both compare by prefix/key and pass the value as data.
 - **AIRLAB_REPO_FILE**: A marker file placed in repo directories by `vcs init`. Contains the YAML filename used for initialization. Used by `--here`, `--check`, `--from-scratch`, `vcs status`, and `vcs update`.

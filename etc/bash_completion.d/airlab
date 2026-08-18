@@ -228,7 +228,7 @@ _airlab_completions() {
     fi
 
     # Top-level commands
-    local commands="greet setup ssh exec auth ping sync launch set_env set_hosts \
+    local commands="greet setup ssh exec auth ping sync launch env set_hosts \
 docker-build docker-up docker-join docker-list docker-clean ros2 vcs a cd compose upgrade --help --version"
 
     # Position 1: complete the sub-command
@@ -239,9 +239,13 @@ docker-build docker-up docker-join docker-list docker-clean ros2 vcs a cd compos
 
     local cmd="${words[1]}"
 
-    # --address=<TAB>: complete a system's address names (system is words[2]) for any command.
+    # --address=<TAB>: complete a system's address names for any command. The system
+    # is the first positional (words[2]) everywhere except `env`, which carries a
+    # subcommand in between, putting its system at words[3].
     if [[ "$eq_opt" == "--address" ]]; then
-        COMPREPLY=( $(compgen -W "$(_airlab_address_names "${words[2]}")" -- "$cur") )
+        local addr_system="${words[2]}"
+        [[ "$cmd" == "env" ]] && addr_system="${words[3]}"
+        COMPREPLY=( $(compgen -W "$(_airlab_address_names "$addr_system")" -- "$cur") )
         return
     fi
 
@@ -317,15 +321,46 @@ docker-build docker-up docker-join docker-list docker-clean ros2 vcs a cd compos
             COMPREPLY=( $(compgen -W "--yaml_file= --stop --address= --password --help" -- "$cur") )
             ;;
 
-        set_env)
+        env)
+            # Position 2: the env sub-command
             if [[ $cword -eq 2 ]]; then
-                COMPREPLY=( $(compgen -W "$(_airlab_targets) --help -h" -- "$cur") )
+                COMPREPLY=( $(compgen -W "show compare sync-from sync-to set --help -h" -- "$cur") )
                 return
             fi
-            # Position 4+: options after the ENV_VARIABLE argument
-            if [[ "$cur" == -* ]]; then
-                COMPREPLY=( $(compgen -W "--address= --password --help -h" -- "$cur") )
+
+            local env_cmd="${words[2]}"
+
+            # Position 3: the target. `show` and `set` also act on this machine;
+            # compare/sync-from/sync-to are inherently about a remote one.
+            if [[ $cword -eq 3 ]]; then
+                case "$env_cmd" in
+                    show|set)
+                        COMPREPLY=( $(compgen -W "$(_airlab_targets) --help" -- "$cur") )
+                        ;;
+                    compare|sync-from|sync-to)
+                        COMPREPLY=( $(compgen -W "$(_airlab_robot_names) --help" -- "$cur") )
+                        ;;
+                esac
+                return
             fi
+
+            # Position 4+: flags (set takes VAR=value here, which we can't complete).
+            case "$env_cmd" in
+                show)
+                    COMPREPLY=( $(compgen -W "--address= --password --help" -- "$cur") )
+                    ;;
+                compare)
+                    COMPREPLY=( $(compgen -W "--address= --password --help" -- "$cur") )
+                    ;;
+                sync-from|sync-to)
+                    COMPREPLY=( $(compgen -W "--address= --password --prune --dry-run -y --yes --help" -- "$cur") )
+                    ;;
+                set)
+                    if [[ "$cur" == -* ]]; then
+                        COMPREPLY=( $(compgen -W "--address= --password --help" -- "$cur") )
+                    fi
+                    ;;
+            esac
             ;;
 
         set_hosts)

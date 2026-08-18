@@ -13,7 +13,7 @@
     *   [Setup](#setup)
     *   [SSH](#ssh)
     *   [Auth](#auth)
-    *   [set_env](#set_env)
+    *   [Env](#env)
     *   [set_hosts](#set_hosts)
     *   [Sync](#sync)
     *   [Launch](#launch)
@@ -321,41 +321,84 @@ airlab auth mt001  # Copy your SSH public key to mt001
 
 ---
 
-### Set_env
+### Env
 
-Sets environment variables for local or remote robot environments.
+Inspects and synchronises environment variables. Two stores hold a machine's environment:
+
+*   `<AIRLAB_PATH>/airlab.env` **on the machine** — what it actually uses.
+*   `<AIRLAB_PATH>/robot/robot_info.yaml` **on your workstation** — the git-tracked record of what it should be.
+
+`compare` reports drift between them; `sync-from` and `sync-to` close it.
+
+> Replaces the old `airlab set_env`, which is now `airlab env set`.
 
 #### Usage
 
 ```bash
-airlab set_env [ROBOT_NAME] [ENV_VARIABLE]
+airlab env <subcommand> [target] [options]
 ```
 
-#### Arguments
+#### Subcommands
 
-*   `ROBOT_NAME`: Target system (`local` for the local environment).
-*   `ENV_VARIABLE`: Environment variable and its value to set.
+| Subcommand | Target | What it does |
+| --- | --- | --- |
+| `show` | `local` or a system | Print that machine's `airlab.env` |
+| `compare` | a system | Diff the **local** record against the machine's live `airlab.env` |
+| `sync-from` | a system | Update the local record from the machine's `airlab.env` |
+| `sync-to` | a system | Update the machine's `airlab.env` from the local record |
+| `set` | `local` or a system | Set one `VAR=value` |
+
+The registry side is **always local**: `airlab env compare g-uav-2` reads *this* machine's `robot_info.yaml` and the robot's `airlab.env`, so the comparison is meaningful from wherever you are driving the fleet.
 
 #### Options
 
+*   `--address=<name>`: Named network address from `robots.yaml` (e.g. `internet`, `vpn`).
+*   `--password`: Skip key-based SSH and prompt for a password.
+*   `--prune`: `sync-from`/`sync-to` also **remove** keys the source lacks. The default is a merge, which only adds and updates.
+*   `--dry-run`: `sync-from`/`sync-to` report what would change and write nothing.
+*   `-y`, `--yes`: Do not prompt for confirmation.
 *   `--help`, `-h`: Display help message.
 
 #### Examples
 
 ```bash
-# Set a local environment variable
-airlab set_env local MY_VAR="hello"
+airlab env show local
+airlab env show g-uav-2 --address=vpn
 
-# Set a remote robot environment variable
-airlab set_env robot1 MY_VAR="hello"
+# What has drifted on the robot?
+airlab env compare g-uav-2
+
+# Adopt the robot's environment into the git-tracked record
+airlab env sync-from g-uav-2
+
+# Push the record to the robot, previewing first
+airlab env sync-to g-uav-2 --dry-run
+airlab env sync-to g-uav-2
+
+airlab env set local ROS_DOMAIN_ID=10
+airlab env set g-uav-2 ROS_DOMAIN_ID=10
 ```
 
-#### Features
+#### Shell literals are preserved
 
-*   For local execution, updates the local `airlab.env` file.
-*   For remote execution, updates both the remote `airlab.env` file and the configuration in `robot_info.yaml`.
+`airlab.env` is read as **text and never sourced**, so a value a machine legitimately stores as a shell expression survives a round trip unchanged:
 
-*Note: Further detailed documentation is omitted due to its relative simplicity.*
+```bash
+USER_NAME=${SUDO_USER:-$USER}      # stays a literal in robot_info.yaml
+GROUP_NAME=$(id -gn)               # and comes back out the same way
+```
+
+Were the file sourced instead, one machine's expansion would be frozen into the shared record.
+
+#### Bookkeeping fields
+
+`ws_path`, `robot_ssh` and `last_updated` live in `robot_info.yaml` but are **not** environment variables. `sync-to` never writes them to a machine, and `sync-from` never imports them — importing would let a stale value overwrite the record that produced it. If `compare` reports them as present in a machine's `airlab.env`, that machine was provisioned by a version whose env extraction let them through; they do nothing there, and `sync-to --prune` clears them.
+
+#### Exit status
+
+`compare` returns `0` when the two sides agree and `2` when they have drifted, so it can gate a script. `1` means the comparison could not be made.
+
+Detailed documentation is available [here](/usr/local/bin/docs/env.md).
 
 ---
 
