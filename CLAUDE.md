@@ -26,6 +26,9 @@ usr/local/bin/
     _lib/
       resolve.sh                  # Shared SSH-address resolution via robots.yaml
       remote_sudo.sh              # Remote sudo over SSH (key/password × NOPASSWD/password)
+      robot_info.py               # Sole owner of robot_info.yaml's format (read/write/env)
+      robot_info.sh               # bash wrappers: update_robot_info / read_env_from_yaml
+      env_file.sh                 # Safe KEY=VALUE editing of airlab.env
     version-control/
       vcs                         # VCS sub-command dispatcher
       init                        # Clone repos from YAML (--here, --check, --from-scratch)
@@ -48,13 +51,15 @@ etc/bash_completion.d/
 
 ## Key Conventions
 
-- **Commands are mostly standalone Bash scripts**: each defines its own utility functions (`log_info`, `log_warn`, `log_error`, `parse_yaml`, `ssh_authenticate`, etc.). The few genuinely shared helpers live in `cmds/_lib/` and are `source`d by the commands that need them (`resolve.sh`, `remote_sudo.sh`).
+- **Commands are mostly standalone Bash scripts**: each defines its own utility functions (`log_info`, `log_warn`, `log_error`, `parse_yaml`, `ssh_authenticate`, etc.). The few genuinely shared helpers live in `cmds/_lib/` and are `source`d by the commands that need them (`resolve.sh`, `remote_sudo.sh`, `robot_info.sh`, `env_file.sh`).
 - **SSH authentication pattern**: Every SSH-using command has an `ssh_authenticate()` function that tries key-based SSH first (`BatchMode=yes`), falls back to password via `sshpass`. The result is stored in the global `robot_password` variable. Callers must NOT declare `local robot_password` before calling `ssh_authenticate` — use `robot_password=""` instead.
 - **SSHPASS_PREFIX pattern**: After `ssh_authenticate`, commands set up `SSHPASS_PREFIX=()` (empty for key-based) or `SSHPASS_PREFIX=(sshpass -p "$robot_password")`. All SSH/rsync/scp calls use `"${SSHPASS_PREFIX[@]}"` as a prefix.
 - **`--password` flag**: All SSH-using commands accept `--password` to skip key-based auth and prompt directly.
 - **Remote sudo**: always elevate through `_lib/remote_sudo.sh` — `remote_sudo` for a one-off command, or `remote_sudo_prime` when the caller needs its own `ssh -tt` pty so sudo's tty-keyed timestamp carries into a script's internal sudo calls (that's what `airlab setup <robot>` does for `install.sh`). Both probe `sudo -n true` first, so a NOPASSWD robot is never asked for a password it doesn't need. **Never interpolate a sudo password into a remote command string** (`ssh host "echo $pw | sudo -S ..."`): quote characters break the command and `ps` exposes the password to every user on the robot. **Never pipe it into an `ssh -tt` session either** — the remote pty echoes it onto the operator's screen. Feed it on the stdin of a non-pty session (`remote_sudo`) or via a staged 0600 `SUDO_ASKPASS` helper (`remote_sudo_prime`).
 - **Interactive prompts**: `_airlab_sudo_pw` writes its prompt to `/dev/tty`, not stderr, because callers capture it with `$(...)`. Any prompt a caller might redirect away has to do the same, or it becomes a silent hang on an invisible question.
 - **YAML parsing**: Done via inline `python3 -c "import yaml; ..."` calls. PyYAML is a dependency.
+- **`robot_info.yaml`**: system names sit at the **top level** — there is no `robots:` root key, and readers look fields up as `<system>.<field>`. `ws_path`, `robot_ssh` and `last_updated` are bookkeeping, not environment variables, and are excluded when regenerating a machine's `airlab.env`. All access goes through `_lib/robot_info.sh`; do not re-add a second writer.
+- **Never edit config files with `sed -i "s|...|$value|"`**: the value lands in the replacement text, so `|` aborts the command and `&` or a backslash is silently rewritten. Use `env_file_set` for `airlab.env` and `update_robot_info` for `robot_info.yaml` — both compare by prefix/key and pass the value as data.
 - **AIRLAB_REPO_FILE**: A marker file placed in repo directories by `vcs init`. Contains the YAML filename used for initialization. Used by `--here`, `--check`, `--from-scratch`, `vcs status`, and `vcs update`.
 - **Config path**: `$AIRLAB_PATH` env var points to the workspace root (set in `~/.bashrc` or `~/.zshrc` during `sudo airlab setup local`).
 - **Setup privileges**: `airlab setup local` provisions the machine system-wide and **must run as root** (`sudo airlab setup local`) — the root check lives in the `local)` arm of `robot-setup`'s `main()`. `airlab setup <robot>` runs as the **invoking user** (its local git/rsync use that user's repo + SSH keys) and elevates **only on the robot** via `_lib/remote_sudo.sh`, so it needs no local root. The robot-side sudo password comes from `--password` → `$AIRLAB_SUDO_PASSWORD` → prompt.

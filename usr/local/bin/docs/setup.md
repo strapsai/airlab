@@ -124,14 +124,19 @@ with an `ip` and/or `hostname`. `airlab` resolves a robot's SSH address from her
 (see `robot/robots.yaml` in your workspace for the full schema).
 
 ### Robot Information YAML
-Located at `$AIRLAB_PATH/robot/robot_info.yaml`, stores robot-specific information:
+Located at `$AIRLAB_PATH/robot/robot_info.yaml`, stores robot-specific information.
+System names are at the **top level** — there is no `robots:` root key:
 ```yaml
-robots:
   robot_name:
     robot_ssh: "username@ip_address"
     ws_path: "/path/to/workspace"
     last_updated: "YYYY-MM-DD HH:MM:SS"
 ```
+
+`robot_ssh`, `ws_path` and `last_updated` are **bookkeeping**, not environment
+variables: the tool uses them to reach the machine and to date the entry, and
+excludes them when regenerating that machine's `airlab.env`. Every other field is
+an environment variable.
 
 Example:
 ```yaml

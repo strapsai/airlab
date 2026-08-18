@@ -11,6 +11,10 @@ readonly DEFAULT_AIRLAB_PATH="$USER_HOME/airlab_ws"
 source "$(dirname "$0")/_lib/resolve.sh"
 # Remote sudo that works for key/password SSH and NOPASSWD/password sudo.
 source "$(dirname "$0")/_lib/remote_sudo.sh"
+# Shared robot_info.yaml access (update_robot_info / read_env_from_yaml).
+source "$(dirname "$0")/_lib/robot_info.sh"
+# Safe KEY=VALUE editing of airlab.env.
+source "$(dirname "$0")/_lib/env_file.sh"
 
 # Color codes for output
 readonly RED='\033[0;31m'
@@ -213,13 +217,15 @@ setup_local() {
 
                     log_info "Updating environment file to reflect the current user and paths..."
 
-                    # Update variables in the environment file
-                    sed -i "s|^USER_NAME=.*|USER_NAME=$current_user|g" "$env_file"
-                    sed -i "s|^USER=.*|USER=$current_user|g" "$env_file"
-                    sed -i "s|^GROUP_NAME=.*|GROUP_NAME=$current_group|g" "$env_file"
-                    sed -i "s|^USER_ID=.*|USER_ID=$current_uid|g" "$env_file"
-                    sed -i "s|^GROUP_ID=.*|GROUP_ID=$current_gid|g" "$env_file"
-                    sed -i "s|^AIRLAB_PATH=.*|AIRLAB_PATH=$airlab_path|g" "$env_file"
+                    # Update variables in the environment file. Same values as before;
+                    # env_file_set just writes them without re-interpreting the value
+                    # (a workspace path containing '|' or '&' broke the old sed).
+                    env_file_set "$env_file" USER_NAME "$current_user"
+                    env_file_set "$env_file" USER "$current_user"
+                    env_file_set "$env_file" GROUP_NAME "$current_group"
+                    env_file_set "$env_file" USER_ID "$current_uid"
+                    env_file_set "$env_file" GROUP_ID "$current_gid"
+                    env_file_set "$env_file" AIRLAB_PATH "$airlab_path"
 
                     log_info "Environment file updated successfully."
                 else
@@ -268,70 +274,6 @@ EOF
     setup_bashrc "$airlab_path"
 
     print_completion_message "$airlab_path" "local"
-}
-
-update_robot_info() {
-    local robot_info_file="$1"
-    local robot_name="$2"
-    local field="$3"
-    local value="$4"
-    local no_overwrite="$5"
-    local return_var="$6"
-
-    ROBOT_INFO_FILE="$robot_info_file/robot/robot_info.yaml"
-    
-    # Create YAML file if it doesn't exist
-    if [ ! -f "$ROBOT_INFO_FILE" ]; then
-        echo "robots:" > "$ROBOT_INFO_FILE"
-    fi
-    
-    # Get current timestamp
-    local timestamp
-    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-
-    # Retrieve existing value from YAML, if any
-    local existing_value
-    existing_value=$(sed -n "/^  $robot_name:/,/^  [^[:space:]]/p" "$ROBOT_INFO_FILE" | grep "^    $field:" | sed "s/^    $field: \"\(.*\)\"/\1/")
-
-    if [ "$no_overwrite" = "--no-overwrite" ] && [ -n "$existing_value" ]; then
-        value="$existing_value"
-    fi
-    
-    # Check if robot already exists in YAML
-    if grep -q "^  $robot_name:" "$ROBOT_INFO_FILE"; then
-        # Check if field exists for this robot
-        if grep -q "^    $field:" <(sed -n "/^  $robot_name:/,/^  [^[:space:]]/p" "$ROBOT_INFO_FILE"); then
-            # Update existing field
-            if [ "$no_overwrite" = "--no-overwrite" ]; then
-                log_warn "Skipped updating $robot_name $field as --no-overwrite is set"
-            else
-                # Update existing field
-                sed -i "/^  $robot_name:/,/^  [^[:space:]]/ {
-                    s|^    $field:.*|    $field: \"$value\"|
-                }" "$ROBOT_INFO_FILE"
-            fi
-        else
-            # Add new field to existing robot
-            sed -i "/^  $robot_name:/a\    $field: \"$value\"" "$ROBOT_INFO_FILE"
-        fi
-        # Always update last_updated timestamp
-        sed -i "/^  $robot_name:/,/^  [^[:space:]]/ {
-            s|^    last_updated:.*|    last_updated: \"$timestamp\"|
-        }" "$ROBOT_INFO_FILE"
-    else
-        # Add new robot entry with the field
-        cat >> "$ROBOT_INFO_FILE" << EOF
-  $robot_name:
-    $field: "$value"
-    last_updated: "$timestamp"
-EOF
-    fi
-
-    # Update the caller's variable
-    if [ -n "$return_var" ]; then
-        eval "$return_var=\"$value\""
-    fi
-    log_info "Updated robot $robot_name $field in $ROBOT_INFO_FILE"
 }
 
 ssh_authenticate() {
@@ -416,35 +358,6 @@ read_remote_variable() {
     echo "$variable_value"
 }
 
-
-# Function to read environment variables from a YAML file
-read_env_from_yaml() {
-    local yaml_file="$1"
-    local robot_name="$2"
-    local output_file="$3"
-
-    # Check if the YAML file exists
-    if [ ! -f "$yaml_file" ]; then
-        log_error "YAML file not found at $yaml_file"
-        return 1
-    fi
-
-    # Extract environment variables for the specified robot
-    sed -n "/^  $robot_name:/,/^  [^[:space:]]/p" "$yaml_file" | \
-    	sed -E "1d" | \
-        sed -E 's/^    ([^:]+):[[:space:]]*"?(.*)"?$/\1=\2/' | \
-        sed -E 's/"$//' | \
-        sed '$d' | \
-        sed '$d' > "$output_file"
-
-    if [ -s "$output_file" ]; then
-        log_info "Environment variables for $robot_name have been extracted to $output_file:"
-        cat "$output_file"
-    else
-        log_error "No environment variables found for $robot_name in $yaml_file"
-        return 1
-    fi
-}
 
 setup_remote() {
     local robot_name="$1"
@@ -703,7 +616,7 @@ setup_remote() {
 
     if [ "$keep_env" = true ]; then
         log_info "--keep-env: preserving the robot's existing airlab.env and the local robot_info.yaml (no changes)."
-    elif grep -q "^  $robot_name:" "$yaml_file"; then
+    elif robot_info_has "$yaml_file" "$robot_name"; then
         log_info "Robot name '$robot_name' found in $yaml_file."
         local _proceed_existing=false
         if [ "$assume_yes" = true ] || [ "$force" = true ]; then
