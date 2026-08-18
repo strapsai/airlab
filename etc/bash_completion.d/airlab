@@ -228,7 +228,7 @@ _airlab_completions() {
     fi
 
     # Top-level commands
-    local commands="greet setup ssh exec auth ping sync launch env set_hosts \
+    local commands="greet setup ssh exec auth ping sync launch env hosts set_hosts \
 docker-build docker-up docker-join docker-list docker-clean ros2 vcs a cd compose upgrade --help --version"
 
     # Position 1: complete the sub-command
@@ -244,7 +244,7 @@ docker-build docker-up docker-join docker-list docker-clean ros2 vcs a cd compos
     # subcommand in between, putting its system at words[3].
     if [[ "$eq_opt" == "--address" ]]; then
         local addr_system="${words[2]}"
-        [[ "$cmd" == "env" ]] && addr_system="${words[3]}"
+        [[ "$cmd" == "env" || "$cmd" == "hosts" ]] && addr_system="${words[3]}"
         COMPREPLY=( $(compgen -W "$(_airlab_address_names "$addr_system")" -- "$cur") )
         return
     fi
@@ -363,7 +363,30 @@ docker-build docker-up docker-join docker-list docker-clean ros2 vcs a cd compos
             esac
             ;;
 
+        hosts)
+            # Position 2: the hosts sub-command
+            if [[ $cword -eq 2 ]]; then
+                COMPREPLY=( $(compgen -W "set compare remove --help -h" -- "$cur") )
+                return
+            fi
+            # Position 3: the target — all three act on local or a remote machine
+            if [[ $cword -eq 3 ]]; then
+                COMPREPLY=( $(compgen -W "$(_airlab_targets) --help" -- "$cur") )
+                return
+            fi
+            # Position 4+: flags. compare never writes, so no --dry-run there.
+            case "${words[2]}" in
+                compare)
+                    COMPREPLY=( $(compgen -W "--address= --password --help" -- "$cur") )
+                    ;;
+                set|remove)
+                    COMPREPLY=( $(compgen -W "--address= --password --dry-run --help" -- "$cur") )
+                    ;;
+            esac
+            ;;
+
         set_hosts)
+            # Deprecated alias for `hosts set`; completed so old habits still work.
             if [[ $cword -eq 2 ]]; then
                 COMPREPLY=( $(compgen -W "$(_airlab_targets) --help" -- "$cur") )
                 return

@@ -14,7 +14,7 @@
     *   [SSH](#ssh)
     *   [Auth](#auth)
     *   [Env](#env)
-    *   [set_hosts](#set_hosts)
+    *   [Hosts](#hosts)
     *   [Sync](#sync)
     *   [Launch](#launch)
     *   [Docker Commands](#docker-commands)
@@ -402,51 +402,53 @@ Detailed documentation is available [here](/usr/local/bin/docs/env.md).
 
 ---
 
-### set_hosts
+### Hosts
 
-Updates `/etc/hosts` with hostname-to-IP mappings from `robots.yaml`, so you can reach robots by name (e.g., `ping mt001`).
+Manages a bounded section of `/etc/hosts` — on this machine or a remote one — generated from `robots.yaml`, so you can reach machines by name (`ping g-uav-1`, `ssh g-uav-2-vpn`).
+
+> Replaces `airlab set_hosts`, which now warns and forwards to `airlab hosts set`.
 
 #### Usage
 
 ```bash
-airlab set_hosts local [--help]
-
-airlab set_hosts <robot_name> [--password] [--help]
+airlab hosts <subcommand> <local|system> [options]
 ```
 
-#### Arguments
+| Subcommand | What it does |
+| --- | --- |
+| `set` | Write the section so machine names resolve |
+| `compare` | Report drift between the section and `robots.yaml` |
+| `remove` | Delete the section, leaving everything else alone |
 
-*   `local`: Update the local machine's `/etc/hosts`.
-*   `<robot_name>`: Update `/etc/hosts` on a remote robot via SSH.
+The registry is **always the local** `robots.yaml`, so `airlab hosts compare g-uav-1` checks that robot's `/etc/hosts` against the registry in front of you.
 
 #### Options
 
-*   `--password`: Skip key-based SSH authentication and prompt for a password directly (remote targets only).
-*   `--help`: Show help message.
+*   `--address=<name>`: Named network address from `robots.yaml` (e.g. `internet`, `vpn`).
+*   `--password`: Skip key-based SSH and prompt for a password (remote targets only).
+*   `--dry-run`: `set` and `remove` report what would change and write nothing.
+*   `--help`, `-h`: Show help message.
 
 #### Quick Examples
 
 ```bash
-airlab set_hosts local              # Update local /etc/hosts
-airlab set_hosts mt001              # Update /etc/hosts on mt001
-airlab set_hosts mt001 --password   # Use password authentication
+airlab hosts compare local              # what has drifted here?
+airlab hosts set local                  # adopt robots.yaml
+airlab hosts set g-uav-1                # give the robot the same view
+airlab hosts remove g-uav-1 --dry-run   # what would come out?
 ```
 
 #### Features
 
-*   Reads each robot's `network_addresses` from `robots.yaml`: the default address maps to the robot name, every other address to `<robot>-<address_name>`.
+*   Reads each system's `network_addresses` from `robots.yaml`: the default address maps to the bare system name, every other address to `<system>-<address_name>`.
 *   Skips any address with no `ip` (it resolves by hostname, not a static IP) or whose composed name isn't a valid hostname, and prints a summary of what was skipped and why.
-*   Creates a timestamped backup before modifying `/etc/hosts` (e.g., `/etc/hosts_20260429_160345`).
-*   Uses fenced markers (`# Airlab Hosts Start` / `# Airlab Hosts End`) — if markers exist, only the content between them is replaced.
-*   Checks for hostname and IP conflicts with existing entries outside the markers. If conflicts are found, warns and aborts.
-*   Supports both local and remote targets with full SSH key/password authentication.
+*   Touches only the fenced block (`# Airlab Hosts Start` / `# Airlab Hosts End`); everything outside it is preserved verbatim.
+*   Timestamped backup before every write (e.g. `/etc/hosts_20260429_160345`), local or remote, with a numeric suffix if two runs land in the same second.
+*   `set` aborts on hostname or IP conflicts with entries outside the markers rather than shadowing them; `compare` reports the same condition.
+*   `compare` exits `0` in sync and `2` on drift, so it can gate a script; `1` means the comparison could not be made.
+*   Remote writes elevate through the shared `remote_sudo` helper (NOPASSWD probe, password on stdin).
 
-#### Dependencies
-
-*   `ssh`, `sshpass` (for remote targets)
-*   `sudo` (required to modify `/etc/hosts`)
-
-Detailed documentation is available [here](/usr/local/bin/docs/set_hosts.md).
+Detailed documentation is available [here](/usr/local/bin/docs/hosts.md).
 
 ---
 

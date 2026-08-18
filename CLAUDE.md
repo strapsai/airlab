@@ -23,6 +23,8 @@ usr/local/bin/
     docker-join                   # Attach to running containers
     docker-list                   # List Docker containers/images
     env                           # Inspect/sync environment variables
+    hosts                         # Manage the /etc/hosts section from robots.yaml
+                                  #   (set/compare/remove; set_hosts is a deprecated shim)
                                   #   (show/compare/sync-from/sync-to/set)
     _lib/
       resolve.sh                  # Shared SSH-address resolution via robots.yaml

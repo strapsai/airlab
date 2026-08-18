@@ -63,11 +63,11 @@ Tests can be `xfail`ed to record a real defect without blocking CI (see
 `KNOWN_HELP_ISSUES` in `unit/test_help.py`). No hard xfails currently.
 
 Fixed (previously xfail): `robot-setup --help` (required root); `vcs pull --rebase`
-(rejected by vcstool 0.3.0); and `set_hosts <robot>` remote sudo — now via the shared
+(rejected by vcstool 0.3.0); and `hosts set <robot>` remote sudo — now via the shared
 `_lib/remote_sudo.sh` helper (handles key/password SSH × NOPASSWD/password sudo; sudo
 password from `$robot_password` → `$AIRLAB_SUDO_PASSWORD` → prompt).
 
-Both `set_hosts` and `robot-setup` now route remote sudo through `_lib/remote_sudo.sh`,
+Both `hosts` and `robot-setup` now route remote sudo through `_lib/remote_sudo.sh`,
 so they work on a key-authorized + no-NOPASSWD robot (sudo password from
 `$AIRLAB_SUDO_PASSWORD` etc.). The `robot-setup` path is validated via the opt-in
 `e2e/test_robot_setup.py` (gated behind `AIRLAB_TEST_ALLOW_ROBOT_SETUP=1`; reinstalls
