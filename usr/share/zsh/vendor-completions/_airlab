@@ -197,6 +197,56 @@ _airlab_env() {
     esac
 }
 
+# Sub-dispatcher for `airlab hosts`.
+_airlab_hosts() {
+    local -a hosts_commands
+    hosts_commands=(
+        'set:Write the airlab section so machine names resolve'
+        'compare:Report drift between the section and robots.yaml'
+        'remove:Delete the airlab section'
+    )
+
+    local state line context
+    typeset -A opt_args
+
+    _arguments -C \
+        '1:hosts command:->hostscmd' \
+        '*::hosts args:->hostsargs'
+
+    case "$state" in
+        hostscmd)
+            _describe 'hosts command' hosts_commands
+            compadd -- --help
+            ;;
+        hostsargs)
+            local hosts_cmd="${line[1]}"
+            if (( CURRENT == 2 )); then
+                _airlab_complete_targets
+                compadd -- --help
+                return
+            fi
+            # Shift so words[1] is the target, which _airlab_complete_addresses reads.
+            shift words
+            (( CURRENT-- ))
+            case "$hosts_cmd" in
+                compare)
+                    _arguments -s \
+                        '--address=[network address from robots.yaml]:address:_airlab_complete_addresses' \
+                        '--password[use password auth]' \
+                        '--help[show help]'
+                    ;;
+                set|remove)
+                    _arguments -s \
+                        '--address=[network address from robots.yaml]:address:_airlab_complete_addresses' \
+                        '--password[use password auth]' \
+                        '--dry-run[report what would change, write nothing]' \
+                        '--help[show help]'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
 _airlab_vcs() {
     local -a vcs_commands
     vcs_commands=(
@@ -296,7 +346,8 @@ _airlab() {
         'sync:Synchronize code to a remote machine'
         'launch:Launch a robot configuration'
         'env:Inspect and synchronise environment variables'
-        'set_hosts:Set hostnames for robots or local environment'
+        'hosts:Manage the /etc/hosts section generated from robots.yaml'
+        'set_hosts:(deprecated) alias for hosts set'
         'docker-build:Build Docker images using docker-compose'
         'docker-up:Start Docker containers using docker-compose'
         'docker-join:Attach to a running Docker container'
@@ -425,6 +476,10 @@ _airlab() {
 
                 env)
                     _airlab_env
+                    ;;
+
+                hosts)
+                    _airlab_hosts
                     ;;
 
                 set_hosts)

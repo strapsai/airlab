@@ -90,7 +90,7 @@ When running airlab setup <system_name>, the command:
 - Configures the remote environment(airlab.env file)
 - Updates the remote .bashrc file
 
-> **Note:** To update `/etc/hosts` with robot hostname mappings, use `airlab set_hosts local` (for the local machine) or `airlab set_hosts <robot_name>` (for a remote robot). See the [set_hosts documentation](/usr/local/bin/docs/set_hosts.md) for details.
+> **Note:** To update `/etc/hosts` with robot hostname mappings, use `airlab hosts set local` (for the local machine) or `airlab hosts set <robot_name>` (for a remote robot). See the [hosts documentation](/usr/local/bin/docs/hosts.md) for details.
 
 ## Error Handling
 

@@ -26,7 +26,7 @@ function show_usage() {
     echo "  exec                          Run a single command on a remote machine (remote-side expansion)."
     echo "  auth                          Install SSH public key on a remote robot for password-less access."
     echo "  env                           Inspect and synchronise environment variables (see 'airlab env --help')."
-    echo "  set_hosts                     Set hostnames for robots or local environment."
+    echo "  hosts                         Manage the /etc/hosts section from robots.yaml (see 'airlab hosts --help')."
     echo "  cd                            Change directory relative to \$AIRLAB_PATH (shell function)."
     echo "  compose                       Prefill this machine's 'docker compose' command from airlab.env (shell function)."
     echo "  upgrade                       Upgrade the airlab tool to the latest version from GitHub."
@@ -126,8 +126,12 @@ case "$COMMAND" in
         echo "Run 'airlab env --help' for the rest of the env subcommands." >&2
         exit 1
         ;;
+    hosts)
+        # Manage the airlab section of /etc/hosts (set / compare / remove)
+        /usr/local/bin/cmds/hosts "$@"
+        ;;
     set_hosts)
-        # Set hosts file
+        # Deprecated alias; the shim warns and forwards to `hosts set`.
         /usr/local/bin/cmds/set_hosts "$@"
         ;;
     compose)
