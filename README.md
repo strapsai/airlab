@@ -1078,15 +1078,22 @@ See [`usr/local/bin/docs/alias-commands.md`](usr/local/bin/docs/alias-commands.m
 
 #### compose
 
-Prefills this machine's `docker compose` command (elected file + profiles from `airlab.env`) onto your prompt, so you drive Docker Compose directly.
+This machine's `docker compose` command (elected file + profiles from `airlab.env`) — **prefilled** onto your prompt to edit, or **run** for you.
 
 ##### Usage
 
 ```bash
-airlab compose
+airlab compose                  # prefill the command; edit it, then run
+airlab compose up -d            # run it — brings THIS machine's stack up
+airlab compose down             # take it down
+airlab compose --dry-run down   # print exactly what would run; run nothing
 ```
 
-Set `AIRLAB_COMPOSE_FILE` (e.g. `docker-compose-basestation.yaml`) and `AIRLAB_COMPOSE_PROFILES` (e.g. `"fleet storage-tools"`) in `airlab.env`. The airlab shell function (zsh/bash) then `cd`s to `$AIRLAB_PATH/launch` and prefills `docker compose -f <file> --profile … ` — editable, with tab-completion. (No `--env-file`: airlab.env is already sourced into your shell.) Run directly (or without the shell integration), it just prints the command to copy.
+Because the elected file and profiles live in `airlab.env`, **the same command brings the right stack up on any configured machine** — basestation, robot or GPU box — without knowing which compose file it uses. Arguments are passed to Compose verbatim (`up`, `down`, `config`, `ps`, `logs`, `build`, …) and its exit code is propagated.
+
+Set `AIRLAB_COMPOSE_FILE` (e.g. `docker-compose-basestation.yaml`) and `AIRLAB_COMPOSE_PROFILES` (e.g. `"fleet storage-tools"`) in `airlab.env`. Bare, the airlab shell function (zsh/bash) `cd`s to `$AIRLAB_PATH/launch` and prefills `docker compose -f <file> --profile … ` — editable, with tab-completion; run directly it just prints the command to copy. With arguments it is an ordinary command: it prints what it is about to run, then runs it, so a bare `airlab compose down` never leaves you guessing which stack it stopped.
+
+The run form adds `--env-file $AIRLAB_PATH/airlab.env` and the prefilled form does not — the prefill is typed into a shell that already exported `airlab.env`, whereas a non-interactive run (over `airlab exec`, ssh or ansible) has no such guarantee and would otherwise resolve `${ARCH}` to empty. Shell variables still win over the file for interpolation, so `GATE_LANE=gate3 airlab compose up -d` overrides it.
 
 See [`usr/local/bin/docs/compose.md`](usr/local/bin/docs/compose.md) for the full reference.
 

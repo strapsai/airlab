@@ -28,15 +28,21 @@ airlab() {
         fi
         builtin cd "$target"
     elif [[ "${1:-}" == "compose" ]]; then
-        # Prefill this machine's `docker compose` command onto the prompt (must run in
-        # the current shell — a subprocess can't inject into the parent's input buffer).
+        # Bare `airlab compose` prefills the command onto the prompt (must run in the
+        # current shell — a subprocess can't inject into the parent's input buffer).
+        # With arguments it is a normal command that RUNS Compose, so hand it straight
+        # over: prefilling `airlab compose up -d` would be the wrong thing entirely.
         shift
         if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
             command airlab compose --help
             return 0
         fi
+        if [[ $# -gt 0 ]]; then
+            command airlab compose "$@"
+            return $?
+        fi
         local _cmd
-        _cmd="$(command airlab compose --emit "$@")" || return $?
+        _cmd="$(command airlab compose --emit)" || return $?
         [[ -n "${AIRLAB_PATH:-}" ]] && builtin cd "${AIRLAB_PATH}/launch" 2>/dev/null
         if [[ $- == *i* ]]; then
             # Inject $_cmd into the readline buffer, editable (with completion): bind the
@@ -383,6 +389,15 @@ docker-build docker-up docker-join docker-list docker-clean ros2 vcs a cd compos
                     COMPREPLY=( $(compgen -W "--address= --password --dry-run --help" -- "$cur") )
                     ;;
             esac
+            ;;
+
+        compose)
+            # Bare `airlab compose` prefills; with args it runs Compose, so offer the
+            # subcommands. After the first one, Compose's own flags are too many and
+            # too subcommand-specific to enumerate — leave them to the operator.
+            if [[ $cword -eq 2 ]]; then
+                COMPREPLY=( $(compgen -W "up down config ps logs build restart pull stop start images top --dry-run --help -h" -- "$cur") )
+            fi
             ;;
 
         set_hosts)
