@@ -596,15 +596,23 @@ setup_remote() {
             || log_warn "Could not remove the temporary sudo askpass dir on $robot_ssh_address; check /tmp/airlab-askpass.* there."
         [ "$install_rc" -eq 0 ] || error_exit "Failed to run install.sh on $robot_ssh_address"
 
-        # install.sh already builds a CLEAN .deb (from its own staging dir) and installs it.
-        # The legacy online path additionally rebuilt+reinstalled the raw /tmp/airlab-main and
-        # ran apt-get -f; we keep that only for the online path (it needs the network and would
-        # repackage stray files). For local-source/offline we rely on install.sh's clean install.
+        # install.sh has already built a CLEAN .deb — from its own staging dir, holding
+        # only DEBIAN/, etc/ and usr/ — and installed it. That is the whole install.
+        #
+        # The online path used to ALSO `dpkg-deb --build /tmp/airlab-main` and install
+        # THAT. But /tmp/airlab-main is the unzipped repository, so everything outside
+        # DEBIAN/ became package payload rooted at "/": README.md, install.sh, LICENSE,
+        # TODO, CLAUDE.md and the whole test/ tree were installed into the target's
+        # filesystem root. (Confirmed on g-uav-2 and g-phys, which carry them today.)
+        # The local-source path never did this, which is why offline-provisioned
+        # machines are clean. Removed — the clean install is now the only one.
+        #
+        # `apt-get install -f` stays, online only (it needs the network). install.sh
+        # runs install_dependencies_ubuntu24.sh before its dpkg -i, so the package's
+        # Pre-Depends are normally already satisfied and this is a no-op — but that
+        # dpkg -i is unchecked, so this is what turns a package left unconfigured into
+        # a loud failure instead of a robot that looks provisioned and is not.
         if [ -z "$airlab_src" ]; then
-            remote_sudo "$robot_ssh_address" "dpkg-deb --build /tmp/airlab-main" \
-                || error_exit "Failed to build .deb on $robot_ssh_address"
-            remote_sudo "$robot_ssh_address" "dpkg -i /tmp/airlab-main.deb" \
-                || error_warn "dpkg -i failed on $robot_ssh_address (proceeding)"
             remote_sudo "$robot_ssh_address" "apt-get install -f -y" \
                 || error_exit "apt-get install -f failed on $robot_ssh_address"
         fi
