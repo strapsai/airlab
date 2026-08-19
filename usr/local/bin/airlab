@@ -28,7 +28,7 @@ function show_usage() {
     echo "  env                           Inspect and synchronise environment variables (see 'airlab env --help')."
     echo "  hosts                         Manage the /etc/hosts section from robots.yaml (see 'airlab hosts --help')."
     echo "  cd                            Change directory relative to \$AIRLAB_PATH (shell function)."
-    echo "  compose                       Prefill this machine's 'docker compose' command from airlab.env (shell function)."
+    echo "  compose                       Prefill or run this machine's 'docker compose' command (see 'airlab compose --help')."
     echo "  upgrade                       Upgrade the airlab tool to the latest version from GitHub."
     echo "  --help                        Show this help message."
     echo "  --version                     Show the version of the airlab command."

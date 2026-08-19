@@ -357,7 +357,7 @@ _airlab() {
         'vcs:Manage multiple repositories with common git functions'
         'a:Run a user-defined alias command'
         'cd:Change directory relative to \$AIRLAB_PATH'
-        'compose:Prefill this machine'\''s docker compose command from airlab.env'
+        'compose:Prefill or run this machine'\''s docker compose command'
         'upgrade:Upgrade the airlab tool to the latest version from GitHub'
     )
 
@@ -476,6 +476,15 @@ _airlab() {
 
                 env)
                     _airlab_env
+                    ;;
+
+                compose)
+                    if (( CURRENT == 2 )); then
+                        local -a compose_cmds
+                        compose_cmds=( up down config ps logs build restart pull stop start images top )
+                        _describe 'docker compose command' compose_cmds
+                        compadd -- --dry-run --help
+                    fi
                     ;;
 
                 hosts)
