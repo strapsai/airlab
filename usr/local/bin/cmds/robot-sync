@@ -338,7 +338,18 @@ main() {
         --exclude='install/'    # exclude install directories
         --exclude='*.pyc'       # exclude Python bytecode
         --exclude='__pycache__' # exclude Python cache
-        --exclude='*.env'       # env is different for all
+        # The per-block arch env files (Axis B: <block>/x86.env, <block>/jetpack.env) are
+        # TRACKED and REQUIRED — launch/ cannot render a single compose file without them.
+        # They must be re-admitted BEFORE the '*.env' exclude below, because rsync takes
+        # the first matching rule. Without this, `airlab sync` silently delivered a
+        # launch/ tree with zero .env files and every `docker compose` on the robot died
+        # with "stat launch/<block>/x86.env: no such file or directory".
+        # Matched at any depth so this also holds for `--path=launch` (which moves the
+        # transfer root, so a 'launch/**' pattern would not match).
+        --include='**/x86.env'
+        --include='**/jetpack.env'
+        --exclude='*.env'       # per-machine / secret env stays local: the root
+                                # airlab.env, storage_tools_ws config*.env, build noise
     )
 
     # Add dry-run flag if requested
