@@ -109,12 +109,18 @@ def test_set_local_replaces_a_value(tmp_path, run):
 
 
 def test_set_local_carries_metacharacters(tmp_path, run):
+    """Quoted on the way out — airlab.env is sourced, so `FOO=a|b & "c"` bare is a
+    pipeline and a background job, not an assignment."""
     ws = tmp_path / "ws"
     (ws / "robot").mkdir(parents=True)
     (ws / "airlab.env").write_text("FOO=old\n")
     r = run("env", "set", "local", 'FOO=a|b & "c"', ws=ws, stdin="", timeout=30)
     assert r.rc == 0, r.out
-    assert (ws / "airlab.env").read_text() == 'FOO=a|b & "c"\n'
+    back = subprocess.run(
+        ["bash", "-c", 'set -o allexport; source "$1" || exit 9; printf "%s" "$FOO"',
+         "_", str(ws / "airlab.env")], capture_output=True, text=True, timeout=30)
+    assert back.returncode == 0, back.stderr
+    assert back.stdout == 'a|b & "c"'
 
 
 def test_set_local_rejects_a_bare_name(tmp_path, run):
@@ -137,13 +143,43 @@ def test_env_file_parsing_preserves_literals(tmp_path, env_file):
         assert stored[key] == value, f"{key} was altered on the way in"
 
 
-def test_full_round_trip_is_byte_identical(tmp_path, env_file):
-    """env file -> registry (sync-from) -> env file (sync-to)."""
+def test_full_round_trip_preserves_every_value(tmp_path, env_file):
+    """env file -> registry (sync-from) -> env file (sync-to).
+
+    The emitted file is NORMALISED, not byte-identical to the input: values are quoted
+    where the shell needs it. That is the point — the input fixture here is deliberately
+    an unsourceable file (`PIPE=/a|b` is a pipeline, not an assignment), which is exactly
+    the shape that used to be written back out verbatim and break `source ~/.bashrc`.
+
+    So the invariant is: the regenerated file SOURCES, and yields exactly the values the
+    registry holds.
+    """
     reg = tmp_path / "robot_info.yaml"
     reg.write_text("")
     py("import", reg, "botA", env_file)
-    regenerated = py("env", reg, "botA").stdout
-    assert regenerated == env_file.read_text()
+    regenerated = tmp_path / "regenerated.env"
+    regenerated.write_text(py("env", reg, "botA").stdout)
+
+    stored = {k: v for k, v in yaml.safe_load(reg.read_text())["botA"].items()
+              if k not in ("ws_path", "robot_ssh", "last_updated")}
+
+    dump = "; ".join('printf "%s\\037%s\\036" ' + f'"{k}" "${{{k}}}"' for k in stored)
+    r = subprocess.run(["bash", "-c", f'set -o allexport; source "$1" || exit 9; {dump}',
+                        "_", str(regenerated)], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, f"regenerated env is not sourceable: {r.stderr}"
+
+    got = {}
+    for rec in r.stdout.split("\036"):
+        if "\037" in rec:
+            k, _, v = rec.partition("\037")
+            got[k] = v
+
+    # Shell expressions expand on source by design; compare those separately.
+    for key, value in stored.items():
+        if "$" in value or "`" in value:
+            assert got[key] != "", f"{key} expanded to nothing"
+        else:
+            assert got[key] == value, f"{key}: {got[key]!r} != {value!r}"
 
 
 def test_import_merges_by_default(tmp_path, env_file):

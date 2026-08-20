@@ -72,7 +72,18 @@ airlab env set g-uav-2 ROS_DOMAIN_ID=10     # the robot's airlab.env AND the loc
 
 This replaces `airlab set_env`. For a remote target it writes both sides, so the two do not drift apart the moment you change something.
 
-Values are written literally — `|`, `&`, quotes and backslashes are all safe. Surrounding double quotes are stripped only when **paired**, so `FOO="hello"` stores `hello` while `FOO=say "hi"` keeps its closing quote.
+Values are written **quoted when the shell needs it**, because `airlab.env` is *sourced* (`~/.bashrc` runs `set -o allexport; source airlab.env`). A plain token is written bare; anything containing a space, `|`, `&`, a quote or a backslash is double-quoted — matching how `airlab.env` already writes multi-word values:
+
+```bash
+airlab env set local AIRLAB_COMPOSE_PROFILES="fleet fleet-build db"
+# -> AIRLAB_COMPOSE_PROFILES="fleet fleet-build db"
+```
+
+Written bare, that line would be read by the shell as `AIRLAB_COMPOSE_PROFILES=fleet` followed by the command `fleet-build`, and every later `source ~/.bashrc` on that machine would fail.
+
+Double quotes, not single: this file legitimately carries live shell expressions (`USER_NAME=${SUDO_USER:-$USER}`, `TASK_ALLOC_NDDS_QOS_PROFILES="${AIRLAB_PATH}/..."`) which must still expand when sourced. Only `\` and `"` are escaped; `$` and backticks stay live. A value needing a *literal* `$` must escape it itself (`\$`).
+
+Surrounding double quotes in what you type are stripped only when **paired**, so `FOO="hello"` stores `hello` while `FOO=say "hi"` keeps its closing quote. Both `set local X="a b"` and the explicitly-escaped `set local X="\"a b\""` therefore produce the same, correct line.
 
 ## Reaching the machine
 

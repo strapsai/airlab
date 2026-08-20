@@ -136,6 +136,36 @@ def set_field(data, system, field, value, no_overwrite=False):
 
 ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
+# A value that is a plain token needs no quotes on the way back out; anything else does,
+# because airlab.env is SOURCED. Kept identical to env_file_quote() in _lib/env_file.sh.
+ENV_BARE_SAFE = re.compile(r"^[A-Za-z0-9_@%+=:,./-]+$")
+
+
+def strip_surrounding_quotes(value):
+    """Drop one layer of matching surrounding quotes.
+
+    airlab.env quotes multi-word values (`AIRLAB_COMPOSE_PROFILES="fleet fleet-build"`),
+    which is shell syntax, not part of the value. The registry stores the logical value,
+    so quoting is re-applied on the way out by env_quote() rather than accumulating.
+    """
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+        return value[1:-1]
+    return value
+
+
+def env_quote(value):
+    """Render a value for a KEY=VALUE line that the shell will source.
+
+    Double quotes, not single: airlab.env legitimately carries live shell expressions
+    (`${SUDO_USER:-$USER}`) that must still expand. Only backslash and double quote are
+    escaped; `$` and backticks stay live.
+    """
+    if value == "":
+        return ""
+    if ENV_BARE_SAFE.match(value):
+        return value
+    return '"%s"' % value.replace("\\", "\\\\").replace('"', '\\"')
+
 
 def parse_env_file(path):
     """Parse a KEY=VALUE env file into an ordered dict, values VERBATIM.
@@ -154,7 +184,7 @@ def parse_env_file(path):
                 continue
             m = ENV_LINE.match(line)
             if m:
-                out[m.group(1)] = m.group(2)
+                out[m.group(1)] = strip_surrounding_quotes(m.group(2))
     return out
 
 
@@ -301,7 +331,7 @@ def main(argv):
         for key, value in entry.items():
             if key in BOOKKEEPING:
                 continue
-            print("%s=%s" % (key, value))
+            print("%s=%s" % (key, env_quote(str(value))))
             wrote = True
         return 0 if wrote else 1
 
