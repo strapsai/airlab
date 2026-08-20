@@ -47,7 +47,16 @@ The following patterns are automatically excluded from synchronization:
 - `install/`: Installation files
 - `*.pyc`: Python bytecode
 - `__pycache__`: Python cache directories
-- `*.env`: Environment files
+- `*.env`: Environment files — **except** the launch tree's per-block arch env files
+  (`<block>/x86.env`, `<block>/jetpack.env`), which are re-admitted because they are
+  tracked, shared and required: `launch/` cannot render a single compose file without
+  them. What stays local is the per-machine root `airlab.env` and the `storage_tools_ws`
+  `config*.env` files.
+
+  The two `--include` rules sit **before** the `*.env` exclude — rsync applies the first
+  matching rule, so reordering them would silently stop delivering the arch envs. They
+  are also matched at any depth, so `--path=launch` (which moves the transfer root)
+  keeps working.
 
 ## Features
 
