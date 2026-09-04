@@ -92,6 +92,29 @@
 
     The `--skip-venv` option is useful when you manage your own virtual environment (e.g., conda, poetry, or a shared team venv). It requires that a virtual environment is already active in the current terminal session. Python dependencies will be installed into that active venv instead of creating `~/VENVs/airlab`.
 
+    ```bash
+    # Install with NO virtual environment at all
+    ./install.sh --no-venv
+    ```
+
+    `--no-venv` is different from `--skip-venv`: `--skip-venv` still *requires* an active venv and installs into it, whereas `--no-venv` uses none. It is a supported shape because the `airlab` command is a **bash dispatcher shipped as a system `.deb`** — nothing about the tool itself lives in a venv, which only ever held its Python dependencies.
+
+    In this mode:
+
+    - no venv is created and **your shell rc files are not modified** (no `source ~/VENVs/airlab/bin/activate` line);
+    - **PyYAML** — the one load-bearing runtime dependency, used by `robot-launch`, `robot-sync`, `docker-build`, `docker-list` and `_lib/robot_info.py` — is installed from apt (`python3-yaml`);
+    - **vcstool** is installed to the user site on a best-effort basis. It is needed only by `airlab vcs`; if it cannot be installed the installer says so and continues.
+
+    Use it on appliance-like targets where a venv is unwanted or awkward. The motivating case is a **ModalAI VOXL flight computer**: Ubuntu 18.04 with Python 3.6, and a `~/.bashrc` that is load-bearing (it carries `DRONE_ID` and the identity base values the ROS stack derives its namespace, DDS domain and stream ports from), so an injected venv-activation line is a real hazard there.
+
+    On Ubuntu 23.04+ the system Python is externally managed ([PEP 668](https://peps.python.org/pep-0668/)) and refuses `pip install --user`, so `vcstool` will not install there — everything except `airlab vcs` still works. On bionic-era targets both dependencies install cleanly.
+
+    To install on a robot without a venv, pass it through `airlab setup`:
+
+    ```bash
+    airlab setup <robot> --no-venv
+    ```
+
     **Skip apt installs:**
 
     If you've already installed the apt dependencies (or want to manage them yourself), use `--skip-apt` to skip both `sudo apt update` and `sudo apt install` in `install.sh` and `install_dependencies_ubuntu24.sh`:

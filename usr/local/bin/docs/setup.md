@@ -74,6 +74,14 @@ airlab setup robot1 --path=/desired/installation/path --force
 - `--keep-env`: Preserve the robot's existing `airlab.env` **and** the operator's local
   `robot/robot_info.yaml` (no regeneration, no clobber). Implied by `--offline`.
 - `--no-reboot`: Never prompt for or perform the post-setup reboot.
+- `--no-venv`: Install the tool on the robot **without a Python virtual environment**. The
+  `airlab` command is a bash dispatcher shipped as a system `.deb`, so it needs none — the venv
+  only ever held its Python dependencies. PyYAML (the one load-bearing runtime dependency) comes
+  from apt instead, `vcstool` is best-effort in the user site, and the robot's shell rc files are
+  **not** modified. Use it on appliance-like targets: on a ModalAI VOXL, `~/.bashrc` carries
+  `DRONE_ID` and the identity base values the ROS stack derives everything from, so an injected
+  venv-activation line is a hazard. Combines with `--offline`. Only `airlab vcs` needs `vcstool`,
+  and a robot never runs it — source arrives via `airlab sync` from the operator.
 
 ##### In-field offline example
 ```bash
