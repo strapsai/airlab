@@ -3,7 +3,7 @@
 set -e  # Exit immediately if a command exits with a non-zero status
 
 # Parse command line arguments.
-VENV_MODE=""  # "", "override", "no-override", "skip", or "reuse"
+VENV_MODE=""  # "", "override", "no-override", "skip", "reuse", or "none"
 SKIP_APT=false
 SKIP_PIP=false
 OFFLINE=false
@@ -19,6 +19,21 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-venv)
             VENV_MODE="skip"
+            shift
+            ;;
+        --no-venv)
+            # Install with NO virtual environment at all. The airlab CLI is a bash
+            # dispatcher shipped as a system .deb, so nothing about the tool itself
+            # needs a venv — the venv only ever held its Python dependencies. This
+            # mode puts those in the user site instead, and makes no ~/.bashrc or
+            # ~/.zshrc edit.
+            #
+            # Intended for appliance-like targets where a venv is unwanted or
+            # impossible: a ModalAI VOXL flight computer runs Ubuntu 18.04 with
+            # Python 3.6, and its ~/.bashrc is load-bearing (it carries DRONE_ID and
+            # the identity base values the ROS stack derives everything from), so an
+            # injected `source .../activate` line is a real hazard there.
+            VENV_MODE="none"
             shift
             ;;
         --skip-apt)
@@ -38,7 +53,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--override-venv | --no-override-venv | --skip-venv | --offline] [--skip-apt] [--skip-pip]"
+            echo "Usage: $0 [--override-venv | --no-override-venv | --skip-venv | --no-venv | --offline] [--skip-apt] [--skip-pip]"
             exit 1
             ;;
     esac
@@ -72,7 +87,13 @@ fi
 VENV_DIR="$HOME/VENVs"
 VENV_ACTION=""  # "create", "reuse", or "skip"
 
-if [ "$VENV_MODE" = "skip" ]; then
+if [ "$VENV_MODE" = "none" ]; then
+    # No venv, by request. Nothing to create, activate or write to a shell rc file;
+    # install_dependencies_ubuntu24.sh is told to install to the user site instead
+    # and to skip its own active-venv guard.
+    echo "Installing without a virtual environment (--no-venv)."
+    VENV_ACTION="none"
+elif [ "$VENV_MODE" = "skip" ]; then
     # Expect the user to already be in a venv.
     if [ -z "$VIRTUAL_ENV" ]; then
         echo "Error: --skip-venv requires an active virtual environment, but none is detected."
@@ -154,6 +175,9 @@ fi
 if [ "$SKIP_PIP" = true ]; then
     DEP_ARGS+=(--skip-pip)
 fi
+if [ "$VENV_MODE" = "none" ]; then
+    DEP_ARGS+=(--no-venv)
+fi
 bash install_dependencies_ubuntu24.sh "${DEP_ARGS[@]}"
 
 # Create the DEB package from a clean staging directory so that only
@@ -216,7 +240,17 @@ echo -e "${GREEN}========================================${RESET}"
 echo -e "${GREEN}    Installation complete!${RESET}"
 echo -e "${GREEN}========================================${RESET}"
 echo ""
-if [ "$VENV_ACTION" = "skip" ]; then
+if [ "$VENV_ACTION" = "none" ]; then
+    echo -e "${YELLOW}${BOLD}>>> AirLab was installed WITHOUT a virtual environment.${RESET}"
+    echo ""
+    echo -e "    The ${BOLD}airlab${RESET} command is a system package and is on your PATH now —"
+    echo -e "    no venv to activate, and your shell rc files were not modified."
+    echo ""
+    echo -e "    Its one runtime Python dependency is ${BOLD}PyYAML${RESET}; \`airlab vcs\` additionally"
+    echo -e "    needs ${BOLD}vcstool${RESET}. Verify with:"
+    echo ""
+    echo -e "        ${BOLD}python3 -c 'import yaml'${RESET}"
+elif [ "$VENV_ACTION" = "skip" ]; then
     echo -e "${YELLOW}${BOLD}>>> AirLab was installed using your current venv:${RESET}"
     echo ""
     echo -e "    ${BOLD}$VIRTUAL_ENV${RESET}"

@@ -11,6 +11,10 @@ readonly DEFAULT_AIRLAB_PATH="$USER_HOME/airlab_ws"
 source "$(dirname "$0")/_lib/resolve.sh"
 # Remote sudo that works for key/password SSH and NOPASSWD/password sudo.
 source "$(dirname "$0")/_lib/remote_sudo.sh"
+# Shared robot_info.yaml access (update_robot_info / read_env_from_yaml).
+source "$(dirname "$0")/_lib/robot_info.sh"
+# Safe KEY=VALUE editing of airlab.env.
+source "$(dirname "$0")/_lib/env_file.sh"
 
 # Color codes for output
 readonly RED='\033[0;31m'
@@ -39,6 +43,12 @@ show_usage() {
     echo "  --password              Skip key-based SSH and prompt for password directly"
     echo "  --airlab-src=<dir>      Install the airlab tool from a LOCAL source tree instead of"
     echo "                          downloading it from GitHub (required with --offline)"
+    echo "  --no-venv               Install the tool on the robot WITHOUT a Python venv."
+    echo "                          The airlab CLI is a bash dispatcher in a system .deb, so it"
+    echo "                          needs none; its Python deps go to the user site instead and"
+    echo "                          the robot's shell rc files are left untouched. Use this on"
+    echo "                          appliance-like targets — e.g. a ModalAI VOXL, where ~/.bashrc"
+    echo "                          carries DRONE_ID and the ROS identity bases."
     echo "  --offline               No-network remote install: use --airlab-src for the tool,"
     echo "                          rsync the airlab_ws repo content from the local working tree"
     echo "                          (no git clone), and run the remote install.sh --offline"
@@ -78,6 +88,7 @@ parse_args() {
     PARSED_ADDRESS=""
     PARSED_AIRLAB_SRC=""
     PARSED_OFFLINE=false
+    PARSED_NO_VENV=false
     PARSED_YES=false
     PARSED_KEEP_ENV=false
     PARSED_NO_REBOOT=false
@@ -101,6 +112,9 @@ parse_args() {
                 ;;
             --offline)
                 PARSED_OFFLINE=true
+                ;;
+            --no-venv)
+                PARSED_NO_VENV=true
                 ;;
             -y|--non-interactive)
                 PARSED_YES=true
@@ -213,13 +227,15 @@ setup_local() {
 
                     log_info "Updating environment file to reflect the current user and paths..."
 
-                    # Update variables in the environment file
-                    sed -i "s|^USER_NAME=.*|USER_NAME=$current_user|g" "$env_file"
-                    sed -i "s|^USER=.*|USER=$current_user|g" "$env_file"
-                    sed -i "s|^GROUP_NAME=.*|GROUP_NAME=$current_group|g" "$env_file"
-                    sed -i "s|^USER_ID=.*|USER_ID=$current_uid|g" "$env_file"
-                    sed -i "s|^GROUP_ID=.*|GROUP_ID=$current_gid|g" "$env_file"
-                    sed -i "s|^AIRLAB_PATH=.*|AIRLAB_PATH=$airlab_path|g" "$env_file"
+                    # Update variables in the environment file. Same values as before;
+                    # env_file_set just writes them without re-interpreting the value
+                    # (a workspace path containing '|' or '&' broke the old sed).
+                    env_file_set "$env_file" USER_NAME "$current_user"
+                    env_file_set "$env_file" USER "$current_user"
+                    env_file_set "$env_file" GROUP_NAME "$current_group"
+                    env_file_set "$env_file" USER_ID "$current_uid"
+                    env_file_set "$env_file" GROUP_ID "$current_gid"
+                    env_file_set "$env_file" AIRLAB_PATH "$airlab_path"
 
                     log_info "Environment file updated successfully."
                 else
@@ -268,70 +284,6 @@ EOF
     setup_bashrc "$airlab_path"
 
     print_completion_message "$airlab_path" "local"
-}
-
-update_robot_info() {
-    local robot_info_file="$1"
-    local robot_name="$2"
-    local field="$3"
-    local value="$4"
-    local no_overwrite="$5"
-    local return_var="$6"
-
-    ROBOT_INFO_FILE="$robot_info_file/robot/robot_info.yaml"
-    
-    # Create YAML file if it doesn't exist
-    if [ ! -f "$ROBOT_INFO_FILE" ]; then
-        echo "robots:" > "$ROBOT_INFO_FILE"
-    fi
-    
-    # Get current timestamp
-    local timestamp
-    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-
-    # Retrieve existing value from YAML, if any
-    local existing_value
-    existing_value=$(sed -n "/^  $robot_name:/,/^  [^[:space:]]/p" "$ROBOT_INFO_FILE" | grep "^    $field:" | sed "s/^    $field: \"\(.*\)\"/\1/")
-
-    if [ "$no_overwrite" = "--no-overwrite" ] && [ -n "$existing_value" ]; then
-        value="$existing_value"
-    fi
-    
-    # Check if robot already exists in YAML
-    if grep -q "^  $robot_name:" "$ROBOT_INFO_FILE"; then
-        # Check if field exists for this robot
-        if grep -q "^    $field:" <(sed -n "/^  $robot_name:/,/^  [^[:space:]]/p" "$ROBOT_INFO_FILE"); then
-            # Update existing field
-            if [ "$no_overwrite" = "--no-overwrite" ]; then
-                log_warn "Skipped updating $robot_name $field as --no-overwrite is set"
-            else
-                # Update existing field
-                sed -i "/^  $robot_name:/,/^  [^[:space:]]/ {
-                    s|^    $field:.*|    $field: \"$value\"|
-                }" "$ROBOT_INFO_FILE"
-            fi
-        else
-            # Add new field to existing robot
-            sed -i "/^  $robot_name:/a\    $field: \"$value\"" "$ROBOT_INFO_FILE"
-        fi
-        # Always update last_updated timestamp
-        sed -i "/^  $robot_name:/,/^  [^[:space:]]/ {
-            s|^    last_updated:.*|    last_updated: \"$timestamp\"|
-        }" "$ROBOT_INFO_FILE"
-    else
-        # Add new robot entry with the field
-        cat >> "$ROBOT_INFO_FILE" << EOF
-  $robot_name:
-    $field: "$value"
-    last_updated: "$timestamp"
-EOF
-    fi
-
-    # Update the caller's variable
-    if [ -n "$return_var" ]; then
-        eval "$return_var=\"$value\""
-    fi
-    log_info "Updated robot $robot_name $field in $ROBOT_INFO_FILE"
 }
 
 ssh_authenticate() {
@@ -417,35 +369,6 @@ read_remote_variable() {
 }
 
 
-# Function to read environment variables from a YAML file
-read_env_from_yaml() {
-    local yaml_file="$1"
-    local robot_name="$2"
-    local output_file="$3"
-
-    # Check if the YAML file exists
-    if [ ! -f "$yaml_file" ]; then
-        log_error "YAML file not found at $yaml_file"
-        return 1
-    fi
-
-    # Extract environment variables for the specified robot
-    sed -n "/^  $robot_name:/,/^  [^[:space:]]/p" "$yaml_file" | \
-    	sed -E "1d" | \
-        sed -E 's/^    ([^:]+):[[:space:]]*"?(.*)"?$/\1=\2/' | \
-        sed -E 's/"$//' | \
-        sed '$d' | \
-        sed '$d' > "$output_file"
-
-    if [ -s "$output_file" ]; then
-        log_info "Environment variables for $robot_name have been extracted to $output_file:"
-        cat "$output_file"
-    else
-        log_error "No environment variables found for $robot_name in $yaml_file"
-        return 1
-    fi
-}
-
 setup_remote() {
     local robot_name="$1"
     local airlab_path="$2"
@@ -457,6 +380,7 @@ setup_remote() {
     local assume_yes="${8:-false}"
     local keep_env="${9:-false}"
     local no_reboot="${10:-false}"
+    local no_venv="${11:-false}"
 
     # Resolve the operator's AIRLAB_PATH. We source ~/.bashrc, but the stock Ubuntu
     # ~/.bashrc returns early in a NON-interactive shell (the `case $- in *i*) ;; *) return`
@@ -667,27 +591,45 @@ setup_remote() {
         # calls. install.sh must run as user (not root) so its ~/VENVs and ~/.bashrc edits
         # use the right $HOME.
         local install_flags=""
-        if [ "$offline" = true ]; then
+        if [ "$no_venv" = true ]; then
+            # --no-venv is the venv mode, so it replaces --override-venv rather than
+            # adding to it. It still combines with --offline, which contributes only
+            # its no-network sub-flags (install.sh will not override an explicit mode).
+            install_flags=" --no-venv"
+            [ "$offline" = true ] && install_flags+=" --offline"
+        elif [ "$offline" = true ]; then
             install_flags=" --offline"
         else
             install_flags=" --override-venv"
         fi
         # Prime sudo's timestamp in the SAME ssh -tt session so install.sh's internal
-        # sudo calls reuse it. Password via the shared source (robot_password/env/prompt);
-        # empty is fine on a NOPASSWD robot.
-        local sudo_pw; sudo_pw="$(_airlab_sudo_pw 2>/dev/null || true)"
-        "${SSHPASS_PREFIX[@]}" ssh -tt -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" "echo '$sudo_pw' | sudo -S echo HERE && bash /tmp/airlab-main/install.sh${install_flags}" \
-            || error_exit "Failed to run install.sh on $robot_ssh_address"
+        # sudo calls reuse it. remote_sudo_prime asks for a password only if the robot's
+        # sudo actually needs one, and never puts it on a remote command line.
+        remote_sudo_prime "$robot_ssh_address" \
+            || error_exit "Could not prepare sudo on $robot_ssh_address"
+        "${SSHPASS_PREFIX[@]}" ssh -tt -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" "$REMOTE_SUDO_PRIME_CMD && bash /tmp/airlab-main/install.sh${install_flags}"
+        local install_rc=$?
+        remote_sudo_prime_cleanup "$robot_ssh_address" \
+            || log_warn "Could not remove the temporary sudo askpass dir on $robot_ssh_address; check /tmp/airlab-askpass.* there."
+        [ "$install_rc" -eq 0 ] || error_exit "Failed to run install.sh on $robot_ssh_address"
 
-        # install.sh already builds a CLEAN .deb (from its own staging dir) and installs it.
-        # The legacy online path additionally rebuilt+reinstalled the raw /tmp/airlab-main and
-        # ran apt-get -f; we keep that only for the online path (it needs the network and would
-        # repackage stray files). For local-source/offline we rely on install.sh's clean install.
+        # install.sh has already built a CLEAN .deb — from its own staging dir, holding
+        # only DEBIAN/, etc/ and usr/ — and installed it. That is the whole install.
+        #
+        # The online path used to ALSO `dpkg-deb --build /tmp/airlab-main` and install
+        # THAT. But /tmp/airlab-main is the unzipped repository, so everything outside
+        # DEBIAN/ became package payload rooted at "/": README.md, install.sh, LICENSE,
+        # TODO, CLAUDE.md and the whole test/ tree were installed into the target's
+        # filesystem root. (Confirmed on g-uav-2 and g-phys, which carry them today.)
+        # The local-source path never did this, which is why offline-provisioned
+        # machines are clean. Removed — the clean install is now the only one.
+        #
+        # `apt-get install -f` stays, online only (it needs the network). install.sh
+        # runs install_dependencies_ubuntu24.sh before its dpkg -i, so the package's
+        # Pre-Depends are normally already satisfied and this is a no-op — but that
+        # dpkg -i is unchecked, so this is what turns a package left unconfigured into
+        # a loud failure instead of a robot that looks provisioned and is not.
         if [ -z "$airlab_src" ]; then
-            remote_sudo "$robot_ssh_address" "dpkg-deb --build /tmp/airlab-main" \
-                || error_exit "Failed to build .deb on $robot_ssh_address"
-            remote_sudo "$robot_ssh_address" "dpkg -i /tmp/airlab-main.deb" \
-                || error_warn "dpkg -i failed on $robot_ssh_address (proceeding)"
             remote_sudo "$robot_ssh_address" "apt-get install -f -y" \
                 || error_exit "apt-get install -f failed on $robot_ssh_address"
         fi
@@ -699,7 +641,7 @@ setup_remote() {
 
     if [ "$keep_env" = true ]; then
         log_info "--keep-env: preserving the robot's existing airlab.env and the local robot_info.yaml (no changes)."
-    elif grep -q "^  $robot_name:" "$yaml_file"; then
+    elif robot_info_has "$yaml_file" "$robot_name"; then
         log_info "Robot name '$robot_name' found in $yaml_file."
         local _proceed_existing=false
         if [ "$assume_yes" = true ] || [ "$force" = true ]; then
@@ -876,7 +818,8 @@ main() {
             ;;
         *)
             setup_remote "$command" "~/airlab_ws" "$PARSED_FORCE" "$PARSED_PASSWORD" "$PARSED_ADDRESS" \
-                "$PARSED_AIRLAB_SRC" "$PARSED_OFFLINE" "$PARSED_YES" "$PARSED_KEEP_ENV" "$PARSED_NO_REBOOT"
+                "$PARSED_AIRLAB_SRC" "$PARSED_OFFLINE" "$PARSED_YES" "$PARSED_KEEP_ENV" "$PARSED_NO_REBOOT" \
+                "$PARSED_NO_VENV"
             ;;
     esac
 }
