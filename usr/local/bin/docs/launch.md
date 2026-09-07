@@ -22,7 +22,7 @@ airlab launch <robot_name> [options]
 
 ## Environment Variables
 - `LAUNCH_FILE_PATH`: Default path to the launch file in the robot's workspace
-  - Can be modified using the `airlab set_env` command
+  - Can be modified using the `airlab env set` command
 
 ## Examples
 ```bash
@@ -51,7 +51,7 @@ airlab launch mt001 --yaml_file=mt002.yaml --stop
 ## Important Notes
 1. The YAML file path should always be relative to the robot's workspace
 2. Use 'local' as the robot name for local operations
-3. The default launch file can be changed using the `airlab set_env` command
+3. The default launch file can be changed using the `airlab env set` command
 4. Remote operations require proper configuration in robots.yaml
 
 ## Error Handling

@@ -74,6 +74,14 @@ airlab setup robot1 --path=/desired/installation/path --force
 - `--keep-env`: Preserve the robot's existing `airlab.env` **and** the operator's local
   `robot/robot_info.yaml` (no regeneration, no clobber). Implied by `--offline`.
 - `--no-reboot`: Never prompt for or perform the post-setup reboot.
+- `--no-venv`: Install the tool on the robot **without a Python virtual environment**. The
+  `airlab` command is a bash dispatcher shipped as a system `.deb`, so it needs none — the venv
+  only ever held its Python dependencies. PyYAML (the one load-bearing runtime dependency) comes
+  from apt instead, `vcstool` is best-effort in the user site, and the robot's shell rc files are
+  **not** modified. Use it on appliance-like targets: on a ModalAI VOXL, `~/.bashrc` carries
+  `DRONE_ID` and the identity base values the ROS stack derives everything from, so an injected
+  venv-activation line is a hazard. Combines with `--offline`. Only `airlab vcs` needs `vcstool`,
+  and a robot never runs it — source arrives via `airlab sync` from the operator.
 
 ##### In-field offline example
 ```bash
@@ -90,7 +98,7 @@ When running airlab setup <system_name>, the command:
 - Configures the remote environment(airlab.env file)
 - Updates the remote .bashrc file
 
-> **Note:** To update `/etc/hosts` with robot hostname mappings, use `airlab set_hosts local` (for the local machine) or `airlab set_hosts <robot_name>` (for a remote robot). See the [set_hosts documentation](/usr/local/bin/docs/set_hosts.md) for details.
+> **Note:** To update `/etc/hosts` with robot hostname mappings, use `airlab hosts set local` (for the local machine) or `airlab hosts set <robot_name>` (for a remote robot). See the [hosts documentation](/usr/local/bin/docs/hosts.md) for details.
 
 ## Error Handling
 
@@ -124,14 +132,19 @@ with an `ip` and/or `hostname`. `airlab` resolves a robot's SSH address from her
 (see `robot/robots.yaml` in your workspace for the full schema).
 
 ### Robot Information YAML
-Located at `$AIRLAB_PATH/robot/robot_info.yaml`, stores robot-specific information:
+Located at `$AIRLAB_PATH/robot/robot_info.yaml`, stores robot-specific information.
+System names are at the **top level** — there is no `robots:` root key:
 ```yaml
-robots:
   robot_name:
     robot_ssh: "username@ip_address"
     ws_path: "/path/to/workspace"
     last_updated: "YYYY-MM-DD HH:MM:SS"
 ```
+
+`robot_ssh`, `ws_path` and `last_updated` are **bookkeeping**, not environment
+variables: the tool uses them to reach the machine and to date the entry, and
+excludes them when regenerating that machine's `airlab.env`. Every other field is
+an environment variable.
 
 Example:
 ```yaml

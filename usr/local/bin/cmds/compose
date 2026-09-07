@@ -1,8 +1,15 @@
 #!/bin/bash
-# airlab compose — prepare (prefill) the `docker compose` command for this machine's
-# elected launch compose file + profiles, so the operator then drives Docker Compose
-# directly (edit the line, add `up -d` / `down` / `config`, use tab-completion). It
-# deliberately does NOT wrap Compose — it just hands you the command.
+# airlab compose — this machine's `docker compose` command, prefilled or run.
+#
+#   airlab compose                 prefill the command onto your prompt (edit, then run)
+#   airlab compose up -d           RUN it with those arguments, from $AIRLAB_PATH/launch
+#   airlab compose down            same — one command that means the same thing everywhere
+#
+# Bare, it still just hands you the command and gets out of the way. With arguments it
+# runs Compose for you, so an operator (or a script, or `airlab exec <robot> ...`) has a
+# single invocation that works on any configured machine without knowing which compose
+# file or profiles that machine elected. Arguments are passed to Compose verbatim, so
+# every subcommand keeps working: up / down / config / ps / logs / build / restart / ...
 #
 # The elected file + profiles come from airlab.env (per machine):
 #   AIRLAB_COMPOSE_FILE=docker-compose-basestation.yaml    # a file under $AIRLAB_PATH/launch/
@@ -20,14 +27,24 @@ readonly NC='\033[0m'
 err() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
 
 emit=false
+dry_run=false
 [ "${1:-}" = "--emit" ] && { emit=true; shift; }
+[ "${1:-}" = "--dry-run" ] && { dry_run=true; shift; }
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
     cat <<'EOF'
-Usage: airlab compose
+Usage: airlab compose [docker-compose-args...]
 
-Prefill the `docker compose` command for this machine's elected compose file and
-profiles (from airlab.env: AIRLAB_COMPOSE_FILE, AIRLAB_COMPOSE_PROFILES) and cd to
-$AIRLAB_PATH/launch. Then edit/run it as normal Docker Compose (up -d, down, config, ...).
+This machine's `docker compose` command — prefilled, or run for you.
+
+  airlab compose              Prefill the command onto your prompt (edit it, then run).
+  airlab compose up -d        Run it with those arguments, from $AIRLAB_PATH/launch.
+  airlab compose down         Same. One command that means the same thing on every machine.
+  airlab compose --dry-run up -d
+                              Print exactly what would run; run nothing.
+
+The elected compose file and profiles come from airlab.env, so the SAME command brings
+the right stack up on a basestation, a robot, or a GPU box. Arguments are handed to
+Compose verbatim — config, ps, logs, build, restart and friends all work.
 
 Set in airlab.env, e.g.:
   AIRLAB_COMPOSE_FILE=docker-compose-basestation.yaml
@@ -78,10 +95,47 @@ for p in "${_profiles[@]}"; do
 done
 cmd="${cmd} "   # trailing space so you type the subcommand (up -d / down / config / ...)
 
-if [ "$emit" = true ]; then
-    printf '%s' "$cmd"
-else
-    printf '%s\n' "$cmd"
-    echo -e "${YELLOW}[tip]${NC} Run the above from \$AIRLAB_PATH/launch — or use the airlab shell" >&2
-    echo -e "      integration (zsh/bash) so 'airlab compose' cd's there and prefills it for you." >&2
+# No arguments: hand over the command, as before.
+if [ "$#" -eq 0 ]; then
+    if [ "$emit" = true ]; then
+        printf '%s' "$cmd"
+    else
+        printf '%s\n' "$cmd"
+        echo -e "${YELLOW}[tip]${NC} Run the above from \$AIRLAB_PATH/launch — or use the airlab shell" >&2
+        echo -e "      integration (zsh/bash) so 'airlab compose' cd's there and prefills it for you." >&2
+    fi
+    exit 0
 fi
+
+# Arguments given: run Compose ourselves.
+#
+# --env-file is added HERE but deliberately not in the prefilled form. The prefilled
+# command is typed into an interactive shell, where ~/.bashrc has already exported
+# airlab.env, so it is redundant there (see the review that removed it). Running
+# non-interactively has no such guarantee — over `airlab exec`, ssh or ansible the
+# stock ~/.bashrc early-returns and nothing exports airlab.env, which would leave
+# ${ARCH} and friends empty and render the wrong stack.
+#
+# For ${VAR} INTERPOLATION the real environment still wins over --env-file, so an
+# explicit `GATE_LANE=gate3 airlab compose up` overrides the file — it is a floor, not
+# an override. (Verified: `ARCH=nonsense` resolves to nonsense.env, not the file's x86.)
+# What a CONTAINER sees is a separate matter: that comes from each service's `env_file:`
+# — base-service loads airlab.env directly — and is unaffected by either.
+cd "${AIRLAB_PATH}/launch" || { err "Cannot cd to ${AIRLAB_PATH}/launch"; exit 1; }
+
+run_cmd=(docker compose --env-file "${env_file}" -f "${compose_file}")
+for p in "${_profiles[@]}"; do
+    [ -n "$p" ] && run_cmd+=(--profile "$p")
+done
+run_cmd+=("$@")
+
+# Show exactly what runs — an operator should never have to guess which stack a bare
+# `airlab compose down` just took down.
+printf '%s\n' "${run_cmd[*]}" >&2
+
+if [ "$dry_run" = true ]; then
+    echo -e "${YELLOW}[dry-run]${NC} nothing was run." >&2
+    exit 0
+fi
+
+exec "${run_cmd[@]}"
