@@ -1,0 +1,70 @@
+name: version-bump
+
+# Every PR into `dev` gets an automatic PATCH bump in DEBIAN/control, committed
+# onto the PR branch. MAJOR and MINOR are reserved for the maintainer: a PR that
+# changes either is left exactly as authored (see .github/scripts/bump_version.py).
+#
+# Only PRs from branches in THIS repo are bumped — a fork PR gets a read-only
+# token and cannot be pushed to, so those are reported and skipped rather than
+# failed. Pushes made with GITHUB_TOKEN do not themselves trigger workflows, so
+# this cannot loop; the script is idempotent besides.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [dev]
+
+concurrency:
+  group: version-bump-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip fork PRs
+        if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          echo "::notice::PR is from a fork (${{ github.event.pull_request.head.repo.full_name }});" \
+               "CI cannot push to it. Bump DEBIAN/control's patch by hand."
+
+      - uses: actions/checkout@v4
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Compute and apply the patch bump
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        id: bump
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$BASE_REF"
+          git show "origin/${BASE_REF}:DEBIAN/control" > /tmp/base-control
+          python3 .github/scripts/bump_version.py \
+            --base-file /tmp/base-control \
+            --head-file DEBIAN/control \
+            --write | tee /tmp/bump.log
+          echo "changed=$(sed -n 's/^::CHANGED:://p' /tmp/bump.log)" >> "$GITHUB_OUTPUT"
+          echo "version=$(sed -n 's/^::VERSION:://p' /tmp/bump.log)" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository && steps.bump.outputs.changed == 'yes' }}
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add DEBIAN/control
+          git commit -m "chore: bump version to ${VERSION}"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+          echo "::notice::Bumped DEBIAN/control to ${VERSION}."
+
+      - name: Report no-op
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository && steps.bump.outputs.changed != 'yes' }}
+        run: echo "::notice::Version already correct (${{ steps.bump.outputs.version }}); nothing to commit."
