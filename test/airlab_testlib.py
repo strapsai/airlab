@@ -13,6 +13,22 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CMDS = REPO_ROOT / "usr" / "local" / "bin" / "cmds"
 FIXTURE_WS = Path(__file__).resolve().parent / "fixtures" / "airlab_ws"
+CONTROL_FILE = REPO_ROOT / "DEBIAN" / "control"
+
+
+def package_version():
+    """The tool's version, read from DEBIAN/control — the single source of truth.
+
+    `airlab --version` reports whatever dpkg recorded from this file, so tests
+    must derive the expected value from it rather than hard-coding one. CI bumps
+    the patch on every PR (see .github/scripts/bump_version.py), so a hard-coded
+    assertion would go stale on the very next merge.
+    """
+    m = re.search(r"^Version:[ \t]*(\S+)$", CONTROL_FILE.read_text(), re.MULTILINE)
+    if not m:
+        raise AssertionError(f"no Version: line in {CONTROL_FILE}")
+    return m.group(1)
+
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 

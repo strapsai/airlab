@@ -28,6 +28,7 @@
     *   [Overview](#overview-1)
     *   [Directory Structure](#directory-structure)
     *   [Folder Breakdown](#folder-breakdown)
+*   [Versioning](#versioning)
 *   [Future Work](#future-work)
 *   [Contributing](#contributing)
 *   [License](#license)
@@ -1263,6 +1264,44 @@ The **airlab.env** file configures the environment variables and runtime setting
 -   Make sure to configure this file correctly for each system to ensure that the `airlab` command functions as expected.
 
 **IMPORTANT NOTE**: You are welcome to rename or create new files as needed, but **please do not modify the folder structure**. Renaming or deleting folders like `docker/` or altering their names may cause the tool to malfunction and prevent it from working properly.
+
+## Versioning
+
+The tool's version lives in exactly one place — the `Version:` field of
+[`DEBIAN/control`](DEBIAN/control). `airlab --version` reads it back out of dpkg, so
+nothing else in the tree should hard-code it (tests derive it via
+`airlab_testlib.package_version()`).
+
+The format is `MAJOR.MINOR.PATCH-Stable-Release`, and the three parts have different
+owners:
+
+| part | owned by | when it changes |
+|---|---|---|
+| `MAJOR`, `MINOR` | **the maintainer** | by hand, in a deliberate release PR |
+| `PATCH` | **CI** | automatically, on every PR into `dev` |
+
+Opening a PR into `dev` triggers
+[`.github/workflows/version-bump.yml`](.github/workflows/version-bump.yml), which sets
+the patch to *the base branch's patch + 1* and commits that to your branch as
+`chore: bump version to X.Y.Z`. **You do not need to touch the version** — and because
+the bump is computed from `dev` rather than from your branch, a long-lived branch still
+lands on the right number.
+
+To cut a release, edit `MAJOR`/`MINOR` yourself. CI detects that the reserved half
+changed and takes your version verbatim, patch included, instead of bumping it.
+
+Two things worth knowing:
+
+*   **Fork PRs are not bumped.** The workflow gets a read-only token and cannot push to
+    a fork, so it logs a notice and skips; bump `DEBIAN/control` by hand there.
+*   **Two PRs open at once can compute the same patch**, since each is measured against
+    `dev` as it stands. Whichever merges second carries a duplicate version until its
+    branch is updated from `dev` (which re-triggers the bump). Rebase before merging if
+    the exact number matters.
+
+The decision logic is a standalone script,
+[`.github/scripts/bump_version.py`](.github/scripts/bump_version.py), covered by
+`test/unit/test_version_bump.py`.
 
 ## Future Work
 
