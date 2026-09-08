@@ -4,13 +4,16 @@ Runs against a fresh Ubuntu container with the package installed (see conftest).
 """
 import pytest
 
+from airlab_testlib import package_version
+
 pytestmark = pytest.mark.install
 
 
 def test_version(in_image):
+    # Derived from DEBIAN/control, never hard-coded: CI patch-bumps every PR.
     cp = in_image("airlab --version")
     assert cp.returncode == 0, cp.stderr
-    assert "2.1.8" in cp.stdout
+    assert package_version() in cp.stdout, cp.stdout
 
 
 def test_greet(in_image):
