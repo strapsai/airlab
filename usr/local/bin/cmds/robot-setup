@@ -83,6 +83,11 @@ error_warn() {
 # echoing a space-joined string) so a path-bearing --airlab-src is safe.
 parse_args() {
     PARSED_PATH="$DEFAULT_AIRLAB_PATH"
+    # Whether --path was given explicitly. It matters for REMOTE setup: the default above
+    # is the OPERATOR's home ($USER_HOME/airlab_ws), which is meaningless on the robot, so
+    # the remote path must stay "~/airlab_ws" (expanded against the ROBOT's home) unless
+    # the caller actually asked for somewhere else.
+    PARSED_PATH_SET=false
     PARSED_FORCE=false
     PARSED_PASSWORD=false
     PARSED_ADDRESS=""
@@ -97,6 +102,7 @@ parse_args() {
         case "$arg" in
             --path=*)
                 PARSED_PATH="${arg#--path=}"
+                PARSED_PATH_SET=true
                 ;;
             --address=*)
                 PARSED_ADDRESS="${arg#--address=}"
@@ -817,7 +823,13 @@ main() {
             show_usage
             ;;
         *)
-            setup_remote "$command" "~/airlab_ws" "$PARSED_FORCE" "$PARSED_PASSWORD" "$PARSED_ADDRESS" \
+            # --path is honored here, but only when it was actually passed: PARSED_PATH
+            # otherwise defaults to the OPERATOR's $HOME/airlab_ws, and sending that to a
+            # robot would install it under a path that only exists on this workstation.
+            # "~/airlab_ws" is expanded against the ROBOT's home inside setup_remote.
+            local remote_path_arg="~/airlab_ws"
+            [ "$PARSED_PATH_SET" = true ] && remote_path_arg="$PARSED_PATH"
+            setup_remote "$command" "$remote_path_arg" "$PARSED_FORCE" "$PARSED_PASSWORD" "$PARSED_ADDRESS" \
                 "$PARSED_AIRLAB_SRC" "$PARSED_OFFLINE" "$PARSED_YES" "$PARSED_KEEP_ENV" "$PARSED_NO_REBOOT" \
                 "$PARSED_NO_VENV"
             ;;
