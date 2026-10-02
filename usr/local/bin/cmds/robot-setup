@@ -15,6 +15,8 @@ source "$(dirname "$0")/_lib/remote_sudo.sh"
 source "$(dirname "$0")/_lib/robot_info.sh"
 # Safe KEY=VALUE editing of airlab.env.
 source "$(dirname "$0")/_lib/env_file.sh"
+# What OS is the target? Decides which tool it gets: this one (Linux) or airlab-mac.
+source "$(dirname "$0")/_lib/remote_os.sh"
 
 # Color codes for output
 readonly RED='\033[0;31m'
@@ -34,7 +36,9 @@ show_usage() {
     echo
     echo -e "${YELLOW}Commands:${NC}"
     echo "  local                   Setup local environment"
-    echo "  <system_name>           Setup remote robot environment"
+    echo "  <system_name>           Setup remote robot environment. The target's OS is detected:"
+    echo "                          a Linux machine gets this tool (airlab), a Mac gets"
+    echo "                          airlab-mac (strapsai/airlab-mac; needs Homebrew there)."
     echo
     echo -e "${YELLOW}Options:${NC}"
     echo "  --path=<path>           Custom installation path (default: $DEFAULT_AIRLAB_PATH)"
@@ -42,7 +46,9 @@ show_usage() {
     echo "  --force                 Force overwrite without prompting (use with caution)"
     echo "  --password              Skip key-based SSH and prompt for password directly"
     echo "  --airlab-src=<dir>      Install the airlab tool from a LOCAL source tree instead of"
-    echo "                          downloading it from GitHub (required with --offline)"
+    echo "                          downloading it from GitHub (required with --offline). It must"
+    echo "                          match the target's OS: an airlab tree for Linux, an"
+    echo "                          airlab-mac tree for a Mac."
     echo "  --no-venv               Install the tool on the robot WITHOUT a Python venv."
     echo "                          The airlab CLI is a bash dispatcher in a system .deb, so it"
     echo "                          needs none; its Python deps go to the user site instead and"
@@ -375,6 +381,131 @@ read_remote_variable() {
 }
 
 
+# Which tool a source tree holds: "airlab" (this repo's .deb layout), "airlab-mac",
+# or nothing. Used to refuse sending the wrong tool to a target before anything is copied.
+source_tree_tool() {
+    local dir="${1%/}"
+    if [ -f "$dir/share/airlab/VERSION" ] && [ -f "$dir/bin/airlab" ] && [ -f "$dir/install.sh" ]; then
+        printf 'airlab-mac'
+    elif [ -f "$dir/DEBIAN/control" ] && [ -f "$dir/install.sh" ]; then
+        printf 'airlab'
+    fi
+}
+
+# Install airlab-mac on a Mac target.
+#
+# Same shape as the Linux flow below (deliver source to /tmp, run its install.sh under
+# a primed sudo pty) with the Mac differences: no dpkg (the installed tool reports
+# itself via `airlab --version`), no apt, and airlab-mac's install.sh pulls its
+# dependencies with Homebrew — which must already be installed on the Mac, since
+# installing Homebrew needs an administrator at the keyboard. install.sh takes the
+# same venv flags as this repo's.
+install_tool_macos() {
+    local robot_ssh_address="$1" airlab_src="$2" offline="$3" no_venv="$4" assume_yes="$5" force="$6"
+    local stage="/tmp/airlab-mac-main"
+
+    local source_repo source_url
+    source_repo=$(cat /usr/share/airlab/install_source_mac 2>/dev/null || echo "strapsai/airlab-mac")
+    source_url="https://github.com/${source_repo}/archive/refs/heads/main.zip"
+
+    if [ "$offline" != true ] && ! "${SSHPASS_PREFIX[@]}" ssh -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" \
+            "test -x /opt/homebrew/bin/brew || test -x /usr/local/bin/brew"; then
+        error_exit "Homebrew is not installed on $robot_ssh_address. Install it there first (https://brew.sh), then re-run."
+    fi
+
+    local installed_version
+    installed_version="$("${SSHPASS_PREFIX[@]}" ssh -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" \
+        "$(remote_cmd_for_os macos 'airlab --version 2>/dev/null')" 2>/dev/null | tr -d '\r')"
+    if [[ "$installed_version" == *airlab-mac* ]]; then
+        if [ "$assume_yes" = true ] || [ "$force" = true ]; then
+            log_info "airlab-mac already installed ($installed_version); reinstalling from the provided source."
+        else
+            read -p "airlab-mac is installed ($installed_version). Install the newer version? (y/N): " confirm
+            [[ ! "$confirm" =~ ^[Yy]$ ]] && { log_warn "Skipping installation"; return 0; }
+        fi
+    fi
+
+    log_info "Installing airlab-mac..."
+    remote_sudo "$robot_ssh_address" "rm -rf $stage /tmp/airlab-mac.zip /tmp/airlab-mac-unpack" \
+        || error_exit "Failed to clean /tmp on $robot_ssh_address"
+
+    if [ -n "$airlab_src" ]; then
+        log_info "Sending local airlab-mac source from $airlab_src ..."
+        local -a rsync_os_args=()
+        local a
+        while IFS= read -r a; do [ -n "$a" ] && rsync_os_args+=("$a"); done < <(remote_rsync_args_for_os macos)
+        "${SSHPASS_PREFIX[@]}" rsync -avz -e "ssh -o StrictHostKeyChecking=no -p ${SSH_PORT:-22}" \
+            "${rsync_os_args[@]}" --exclude='.git' --exclude='test/.venv' \
+            "${airlab_src%/}/" "$robot_ssh_address:$stage/" || error_exit "Failed to send local airlab-mac source to $robot_ssh_address"
+    else
+        local zip; zip="$(mktemp -t airlab-mac-zip.XXXXXX)"
+        curl -fL -o "$zip" "$source_url" || { rm -f "$zip"; error_exit "Failed to download $source_url"; }
+        remote_copy "$zip" "$robot_ssh_address:/tmp/airlab-mac.zip" "$robot_password"
+        rm -f "$zip"
+        # GitHub's archive unpacks to <repo>-<branch>/, which depends on the (fork's)
+        # repo name — so unpack into a scratch dir and move whatever it holds to $stage.
+        remote_exec "$robot_ssh_address" "mkdir /tmp/airlab-mac-unpack && unzip -q -o /tmp/airlab-mac.zip -d /tmp/airlab-mac-unpack && d=\$(find /tmp/airlab-mac-unpack -mindepth 1 -maxdepth 1 -type d | head -n 1) && [ -n \"\$d\" ] && mv \"\$d\" $stage && rm -rf /tmp/airlab-mac-unpack && test -f $stage/install.sh" "$robot_password"
+    fi
+    remote_exec "$robot_ssh_address" "chmod -R a+rX $stage && chmod a+x $stage/install.sh" "$robot_password"
+
+    local install_flags=""
+    if [ "$no_venv" = true ]; then
+        install_flags=" --no-venv"
+        [ "$offline" = true ] && install_flags+=" --offline"
+    elif [ "$offline" = true ]; then
+        install_flags=" --offline"
+    else
+        install_flags=" --override-venv"
+    fi
+    # install.sh runs as the user (Homebrew refuses root) inside a primed-sudo pty,
+    # exactly like the Linux install below.
+    remote_sudo_prime "$robot_ssh_address" \
+        || error_exit "Could not prepare sudo on $robot_ssh_address"
+    "${SSHPASS_PREFIX[@]}" ssh -tt -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" "$REMOTE_SUDO_PRIME_CMD && /bin/bash $stage/install.sh${install_flags} -y"
+    local install_rc=$?
+    remote_sudo_prime_cleanup "$robot_ssh_address" \
+        || log_warn "Could not remove the temporary sudo askpass dir on $robot_ssh_address; check /tmp/airlab-askpass.* there."
+    [ "$install_rc" -eq 0 ] || error_exit "Failed to run install.sh on $robot_ssh_address"
+
+    remote_sudo "$robot_ssh_address" "rm -rf $stage /tmp/airlab-mac.zip" \
+        || log_warn "Could not clean $stage on $robot_ssh_address"
+}
+
+# Point a Mac target's shell rc files at its airlab.env. BSD sed has no GNU `-i`,
+# so strip with grep and rewrite through the same inode (dotfiles are often
+# symlinks). zsh is the macOS default, so ~/.zshrc is always configured; ~/.bashrc
+# too, with the login-shell profile made to read it (Terminal starts login shells).
+# The script travels on stdin with the path as an argument — no second quoting layer.
+update_remote_rc_macos() {
+    local robot_ssh_address="$1" airlab_path="$2"
+    local script
+    script='set -e
+ws="$1"
+line="set -o allexport; source $ws/airlab.env; set +o allexport"
+for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+    touch "$rc"
+    tmp="$(mktemp -t airlab-rc.XXXXXX)"
+    # grep: 1 = nothing left (fine), 2 = read error -> leave the file alone.
+    rc_status=0
+    grep -v "source .*airlab\.env" "$rc" > "$tmp" || rc_status=$?
+    if [ "$rc_status" -le 1 ]; then cat "$tmp" > "$rc"; fi
+    rm -f "$tmp"
+    [ "$rc_status" -le 1 ] || { echo "cannot read $rc" >&2; exit 1; }
+    printf "%s\n" "$line" >> "$rc"
+done
+# A login bash reads only the FIRST of these that exists; bridge that one to ~/.bashrc.
+profile="$HOME/.bash_profile"
+for p in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+    if [ -f "$p" ]; then profile="$p"; break; fi
+done
+if ! grep -Eqs "(\.|source)[[:space:]]+(\"?\\\$HOME\"?|~)/\.bashrc" "$profile"; then
+    printf "%s\n" "[ -f ~/.bashrc ] && . ~/.bashrc  # added by airlab: login shells read ~/.bashrc too" >> "$profile"
+fi'
+    printf '%s\n' "$script" | "${SSHPASS_PREFIX[@]}" ssh -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" \
+        "$robot_ssh_address" "/bin/bash -s -- '$airlab_path'" \
+        || error_exit "Failed to update the shell rc files on $robot_ssh_address"
+}
+
 setup_remote() {
     local robot_name="$1"
     local airlab_path="$2"
@@ -432,6 +563,22 @@ setup_remote() {
         SSHPASS_PREFIX=(sshpass -p "$robot_password")
     fi
 
+    # Which OS is the target? Linux machines get this tool; Macs get airlab-mac.
+    local target_os target_tool
+    target_os="$(remote_os "$robot_ssh_address")"
+    target_tool="$(airlab_tool_for_os "$target_os")" \
+        || error_exit "Unsupported target OS on $robot_ssh_address: '${target_os:-no answer to uname -s}'. airlab supports Linux and macOS."
+    log_info "Target OS: $target_os -> installing '$target_tool'"
+
+    # A local tool source must be the tool this target needs.
+    if [ -n "$airlab_src" ]; then
+        local src_tool
+        src_tool="$(source_tree_tool "$airlab_src")"
+        [ -n "$src_tool" ] || error_exit "--airlab-src=$airlab_src is neither an 'airlab' nor an 'airlab-mac' source tree"
+        [ "$src_tool" = "$target_tool" ] \
+            || error_exit "--airlab-src=$airlab_src is an '$src_tool' tree, but $robot_name runs $target_os and needs '$target_tool'"
+    fi
+
     # Check existing installation
     log_info "Checking existing installation..."
     remote_home_dir=$("${SSHPASS_PREFIX[@]}" ssh -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" "echo \$HOME" | sed 's/^HOME=//')
@@ -480,6 +627,11 @@ setup_remote() {
     if [ "$keep_env" = true ]; then
         rsync_excludes+=(--exclude='airlab.env' --exclude='robot/robot_info.yaml')
     fi
+    # A Mac's /usr/bin/rsync is openrsync; have the far side use its Homebrew rsync.
+    local _rsync_arg
+    while IFS= read -r _rsync_arg; do
+        [ -n "$_rsync_arg" ] && rsync_excludes+=("$_rsync_arg")
+    done < <(remote_rsync_args_for_os "$target_os")
 
     # Single cleanup for whichever temp we create below (online clone / offline ignore-list).
     local clone_dir="" ignore_file="" src_dir=""
@@ -547,100 +699,104 @@ setup_remote() {
     "${SSHPASS_PREFIX[@]}" rsync -avz -e "ssh -o StrictHostKeyChecking=no -p ${SSH_PORT:-22}" "${rsync_excludes[@]}" \
         "$src_dir" "$robot_ssh_address:$airlab_path/" || error_exit "Failed to copy files"
 
-    # Resolve install source — recorded at .deb-build time so each fork's
-    # package fetches from its own repo without baking the URL into code.
-    local source_repo source_url
-    source_repo=$(cat /usr/share/airlab/install_source 2>/dev/null || echo "strapsai/airlab")
-    source_url="https://github.com/${source_repo}/archive/refs/heads/main.zip"
+    if [ "$target_os" = "macos" ]; then
+        install_tool_macos "$robot_ssh_address" "$airlab_src" "$offline" "$no_venv" "$assume_yes" "$force"
+    else
+        # Resolve install source — recorded at .deb-build time so each fork's
+        # package fetches from its own repo without baking the URL into code.
+        local source_repo source_url
+        source_repo=$(cat /usr/share/airlab/install_source 2>/dev/null || echo "strapsai/airlab")
+        source_url="https://github.com/${source_repo}/archive/refs/heads/main.zip"
 
-    # Decide whether to (re)install the airlab tool package on the robot.
-    local do_install=true
-    if "${SSHPASS_PREFIX[@]}" ssh -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" "dpkg -l | grep -q '^ii.*airlab'" ; then
-        if [ "$assume_yes" = true ] || [ "$force" = true ]; then
-            log_info "airlab package already installed; reinstalling from the provided source."
-        else
-            read -p "airlab package is installed. Unpack newer verison? (y/N): " confirm
-            [[ ! "$confirm" =~ ^[Yy]$ ]] && { log_warn "Skipping installation"; do_install=false; }
+        # Decide whether to (re)install the airlab tool package on the robot.
+        local do_install=true
+        if "${SSHPASS_PREFIX[@]}" ssh -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" "dpkg -l | grep -q '^ii.*airlab'" ; then
+            if [ "$assume_yes" = true ] || [ "$force" = true ]; then
+                log_info "airlab package already installed; reinstalling from the provided source."
+            else
+                read -p "airlab package is installed. Unpack newer verison? (y/N): " confirm
+                [[ ! "$confirm" =~ ^[Yy]$ ]] && { log_warn "Skipping installation"; do_install=false; }
+            fi
         fi
-    fi
 
-    if [ "$do_install" = true ]; then
-        log_info "Installing airlab package..."
-        remote_sudo "$robot_ssh_address" "rm -rf /tmp/airlab-main /tmp/airlab-main.deb /tmp/airlab.zip" \
-            || error_exit "Failed to clean /tmp on $robot_ssh_address"
+        if [ "$do_install" = true ]; then
+            log_info "Installing airlab package..."
+            remote_sudo "$robot_ssh_address" "rm -rf /tmp/airlab-main /tmp/airlab-main.deb /tmp/airlab.zip" \
+                || error_exit "Failed to clean /tmp on $robot_ssh_address"
 
-        # Deliver the airlab tool source to the robot at /tmp/airlab-main.
-        if [ -n "$airlab_src" ]; then
-            # LOCAL source (offline-capable): rsync the tree directly — no GitHub download.
-            log_info "Sending local airlab tool source from $airlab_src ..."
-            "${SSHPASS_PREFIX[@]}" rsync -avz -e "ssh -o StrictHostKeyChecking=no -p ${SSH_PORT:-22}" --exclude='.git' \
-                "${airlab_src%/}/" "$robot_ssh_address:/tmp/airlab-main/" || error_exit "Failed to send local airlab source to robot"
-        else
-            # LEGACY online path: download the tool zip from GitHub, copy, unzip.
-            curl -L -o /tmp/airlab.zip "$source_url"
-            remote_copy "/tmp/airlab.zip" "$robot_ssh_address:/tmp/airlab.zip" "$robot_password"
-            remote_sudo "$robot_ssh_address" "unzip -o /tmp/airlab.zip -d /tmp/" \
-                || error_exit "Failed to unzip airlab on $robot_ssh_address"
+            # Deliver the airlab tool source to the robot at /tmp/airlab-main.
+            if [ -n "$airlab_src" ]; then
+                # LOCAL source (offline-capable): rsync the tree directly — no GitHub download.
+                log_info "Sending local airlab tool source from $airlab_src ..."
+                "${SSHPASS_PREFIX[@]}" rsync -avz -e "ssh -o StrictHostKeyChecking=no -p ${SSH_PORT:-22}" --exclude='.git' \
+                    "${airlab_src%/}/" "$robot_ssh_address:/tmp/airlab-main/" || error_exit "Failed to send local airlab source to robot"
+            else
+                # LEGACY online path: download the tool zip from GitHub, copy, unzip.
+                curl -L -o /tmp/airlab.zip "$source_url"
+                remote_copy "/tmp/airlab.zip" "$robot_ssh_address:/tmp/airlab.zip" "$robot_password"
+                remote_sudo "$robot_ssh_address" "unzip -o /tmp/airlab.zip -d /tmp/" \
+                    || error_exit "Failed to unzip airlab on $robot_ssh_address"
+            fi
+            remote_sudo "$robot_ssh_address" "chmod a+x -R /tmp/airlab-main" \
+                || error_exit "Failed to chmod airlab source on $robot_ssh_address"
+
+            # Run install.sh on the robot NON-INTERACTIVELY (we drive it over ssh -tt with no
+            # operator at the keyboard, so any prompt would hang). install.sh prompts only about
+            # the venv when one already exists, so pass an explicit venv mode:
+            #   offline -> --offline   : reuse the existing venv (and skip apt/pip; no network)
+            #   online  -> --override-venv : (re)create the managed ~/VENVs/airlab venv; works
+            #              whether or not it already exists, and never prompts. (Without this, a
+            #              re-provision of a robot that already has the venv blocks forever on
+            #              install.sh's "Remove and re-create it? [y/N]" prompt.)
+            # ssh -tt: pty makes sudo's timestamp cache survive into install.sh's internal sudo
+            # calls. install.sh must run as user (not root) so its ~/VENVs and ~/.bashrc edits
+            # use the right $HOME.
+            local install_flags=""
+            if [ "$no_venv" = true ]; then
+                # --no-venv is the venv mode, so it replaces --override-venv rather than
+                # adding to it. It still combines with --offline, which contributes only
+                # its no-network sub-flags (install.sh will not override an explicit mode).
+                install_flags=" --no-venv"
+                [ "$offline" = true ] && install_flags+=" --offline"
+            elif [ "$offline" = true ]; then
+                install_flags=" --offline"
+            else
+                install_flags=" --override-venv"
+            fi
+            # Prime sudo's timestamp in the SAME ssh -tt session so install.sh's internal
+            # sudo calls reuse it. remote_sudo_prime asks for a password only if the robot's
+            # sudo actually needs one, and never puts it on a remote command line.
+            remote_sudo_prime "$robot_ssh_address" \
+                || error_exit "Could not prepare sudo on $robot_ssh_address"
+            "${SSHPASS_PREFIX[@]}" ssh -tt -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" "$REMOTE_SUDO_PRIME_CMD && bash /tmp/airlab-main/install.sh${install_flags}"
+            local install_rc=$?
+            remote_sudo_prime_cleanup "$robot_ssh_address" \
+                || log_warn "Could not remove the temporary sudo askpass dir on $robot_ssh_address; check /tmp/airlab-askpass.* there."
+            [ "$install_rc" -eq 0 ] || error_exit "Failed to run install.sh on $robot_ssh_address"
+
+            # install.sh has already built a CLEAN .deb — from its own staging dir, holding
+            # only DEBIAN/, etc/ and usr/ — and installed it. That is the whole install.
+            #
+            # The online path used to ALSO `dpkg-deb --build /tmp/airlab-main` and install
+            # THAT. But /tmp/airlab-main is the unzipped repository, so everything outside
+            # DEBIAN/ became package payload rooted at "/": README.md, install.sh, LICENSE,
+            # TODO, CLAUDE.md and the whole test/ tree were installed into the target's
+            # filesystem root. (Confirmed on g-uav-2 and g-phys, which carry them today.)
+            # The local-source path never did this, which is why offline-provisioned
+            # machines are clean. Removed — the clean install is now the only one.
+            #
+            # `apt-get install -f` stays, online only (it needs the network). install.sh
+            # runs install_dependencies_ubuntu24.sh before its dpkg -i, so the package's
+            # Pre-Depends are normally already satisfied and this is a no-op — but that
+            # dpkg -i is unchecked, so this is what turns a package left unconfigured into
+            # a loud failure instead of a robot that looks provisioned and is not.
+            if [ -z "$airlab_src" ]; then
+                remote_sudo "$robot_ssh_address" "apt-get install -f -y" \
+                    || error_exit "apt-get install -f failed on $robot_ssh_address"
+            fi
+            remote_sudo "$robot_ssh_address" "rm -rf /tmp/airlab-main /tmp/airlab-main.deb /tmp/airlab.zip" \
+                || error_exit "Failed to clean /tmp on $robot_ssh_address"
         fi
-        remote_sudo "$robot_ssh_address" "chmod a+x -R /tmp/airlab-main" \
-            || error_exit "Failed to chmod airlab source on $robot_ssh_address"
-
-        # Run install.sh on the robot NON-INTERACTIVELY (we drive it over ssh -tt with no
-        # operator at the keyboard, so any prompt would hang). install.sh prompts only about
-        # the venv when one already exists, so pass an explicit venv mode:
-        #   offline -> --offline   : reuse the existing venv (and skip apt/pip; no network)
-        #   online  -> --override-venv : (re)create the managed ~/VENVs/airlab venv; works
-        #              whether or not it already exists, and never prompts. (Without this, a
-        #              re-provision of a robot that already has the venv blocks forever on
-        #              install.sh's "Remove and re-create it? [y/N]" prompt.)
-        # ssh -tt: pty makes sudo's timestamp cache survive into install.sh's internal sudo
-        # calls. install.sh must run as user (not root) so its ~/VENVs and ~/.bashrc edits
-        # use the right $HOME.
-        local install_flags=""
-        if [ "$no_venv" = true ]; then
-            # --no-venv is the venv mode, so it replaces --override-venv rather than
-            # adding to it. It still combines with --offline, which contributes only
-            # its no-network sub-flags (install.sh will not override an explicit mode).
-            install_flags=" --no-venv"
-            [ "$offline" = true ] && install_flags+=" --offline"
-        elif [ "$offline" = true ]; then
-            install_flags=" --offline"
-        else
-            install_flags=" --override-venv"
-        fi
-        # Prime sudo's timestamp in the SAME ssh -tt session so install.sh's internal
-        # sudo calls reuse it. remote_sudo_prime asks for a password only if the robot's
-        # sudo actually needs one, and never puts it on a remote command line.
-        remote_sudo_prime "$robot_ssh_address" \
-            || error_exit "Could not prepare sudo on $robot_ssh_address"
-        "${SSHPASS_PREFIX[@]}" ssh -tt -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$robot_ssh_address" "$REMOTE_SUDO_PRIME_CMD && bash /tmp/airlab-main/install.sh${install_flags}"
-        local install_rc=$?
-        remote_sudo_prime_cleanup "$robot_ssh_address" \
-            || log_warn "Could not remove the temporary sudo askpass dir on $robot_ssh_address; check /tmp/airlab-askpass.* there."
-        [ "$install_rc" -eq 0 ] || error_exit "Failed to run install.sh on $robot_ssh_address"
-
-        # install.sh has already built a CLEAN .deb — from its own staging dir, holding
-        # only DEBIAN/, etc/ and usr/ — and installed it. That is the whole install.
-        #
-        # The online path used to ALSO `dpkg-deb --build /tmp/airlab-main` and install
-        # THAT. But /tmp/airlab-main is the unzipped repository, so everything outside
-        # DEBIAN/ became package payload rooted at "/": README.md, install.sh, LICENSE,
-        # TODO, CLAUDE.md and the whole test/ tree were installed into the target's
-        # filesystem root. (Confirmed on g-uav-2 and g-phys, which carry them today.)
-        # The local-source path never did this, which is why offline-provisioned
-        # machines are clean. Removed — the clean install is now the only one.
-        #
-        # `apt-get install -f` stays, online only (it needs the network). install.sh
-        # runs install_dependencies_ubuntu24.sh before its dpkg -i, so the package's
-        # Pre-Depends are normally already satisfied and this is a no-op — but that
-        # dpkg -i is unchecked, so this is what turns a package left unconfigured into
-        # a loud failure instead of a robot that looks provisioned and is not.
-        if [ -z "$airlab_src" ]; then
-            remote_sudo "$robot_ssh_address" "apt-get install -f -y" \
-                || error_exit "apt-get install -f failed on $robot_ssh_address"
-        fi
-        remote_sudo "$robot_ssh_address" "rm -rf /tmp/airlab-main /tmp/airlab-main.deb /tmp/airlab.zip" \
-            || error_exit "Failed to clean /tmp on $robot_ssh_address"
     fi
 
     local yaml_file="$remote_path/robot/robot_info.yaml"
@@ -678,8 +834,11 @@ setup_remote() {
             update_robot_info "$remote_path" "$robot_name" "GROUP_NAME" "$group_name"
             update_robot_info "$remote_path" "$robot_name" "GROUP_ID" "$group_id"
             update_robot_info "$remote_path" "$robot_name" "USER_ID" "$user_id"
-            update_robot_info "$remote_path" "$robot_name" "DOCKER_BUILD_PATH" "$docker_build" --no-overwrite docker_build
-            update_robot_info "$remote_path" "$robot_name" "DOCKER_UP_PATH" "$docker_up" --no-overwrite docker_up
+            # Docker paths only for Linux: airlab-mac has no Docker commands.
+            if [ "$target_os" = "linux" ]; then
+                update_robot_info "$remote_path" "$robot_name" "DOCKER_BUILD_PATH" "$docker_build" --no-overwrite docker_build
+                update_robot_info "$remote_path" "$robot_name" "DOCKER_UP_PATH" "$docker_up" --no-overwrite docker_up
+            fi
             update_robot_info "$remote_path" "$robot_name" "LAUNCH_FILE_PATH" "$launch_path" --no-overwrite launch_path
 
             log_warn "Updating environment variables..."
@@ -727,8 +886,11 @@ EOF
         update_robot_info "$remote_path" "$robot_name" "GROUP_NAME" "$group_name"
         update_robot_info "$remote_path" "$robot_name" "GROUP_ID" "$group_id"
         update_robot_info "$remote_path" "$robot_name" "USER_ID" "$user_id"
-        update_robot_info "$remote_path" "$robot_name" "DOCKER_BUILD_PATH" "$docker_build" --no-overwrite docker_build
-        update_robot_info "$remote_path" "$robot_name" "DOCKER_UP_PATH" "$docker_up" --no-overwrite docker_up
+        # Docker paths only for Linux: airlab-mac has no Docker commands.
+        if [ "$target_os" = "linux" ]; then
+            update_robot_info "$remote_path" "$robot_name" "DOCKER_BUILD_PATH" "$docker_build" --no-overwrite docker_build
+            update_robot_info "$remote_path" "$robot_name" "DOCKER_UP_PATH" "$docker_up" --no-overwrite docker_up
+        fi
         update_robot_info "$remote_path" "$robot_name" "LAUNCH_FILE_PATH" "$launch_path" --no-overwrite launch_path
 
         log_warn "Updating environment variables..."
@@ -754,17 +916,29 @@ AIRLAB_DEFAULT_DOCKER_VOLUMES=
 EOF
     fi
 
+    if [ "$keep_env" != true ] && [ "$target_os" = "macos" ] && [ -f /tmp/airlab.env ]; then
+        # airlab-mac has no Docker commands; leave their keys out of a Mac's airlab.env.
+        local _mac_env; _mac_env="$(mktemp -t airlab-mac-env.XXXXXX)"
+        grep -v -E '^(DOCKER_BUILD_PATH|DOCKER_UP_PATH|AIRLAB_DEFAULT_IMAGE|AIRLAB_DEFAULT_DOCKER_VOLUMES)=|^# (Default Docker image|Space-separated host folders|each listed folder)' \
+            /tmp/airlab.env > "$_mac_env" || true
+        cat "$_mac_env" > /tmp/airlab.env
+        rm -f "$_mac_env"
+    fi
     if [ "$keep_env" != true ]; then
         remote_copy "/tmp/airlab.env" "$robot_ssh_address:$airlab_path/airlab.env" "$robot_password"
         rm -f /tmp/airlab.env
     fi
 
-    # Update remote .bashrc
-    remote_exec "$robot_ssh_address" "sed -i '/source .*airlab.env/d' ~/.bashrc" "$robot_password"
-    remote_exec "$robot_ssh_address" "grep -q 'source $airlab_path/airlab.env' ~/.bashrc || \
-        echo 'set -o allexport; source $airlab_path/airlab.env; set +o allexport' >> ~/.bashrc" "$robot_password"
-    # Update remote .zshrc for zsh users (default-zsh target, or an existing .zshrc)
-    remote_exec "$robot_ssh_address" "if command -v zsh >/dev/null 2>&1 && { [ -f ~/.zshrc ] || [ \"\$(basename \${SHELL:-})\" = zsh ]; }; then touch ~/.zshrc; sed -i '/source .*airlab.env/d' ~/.zshrc; grep -q 'source $airlab_path/airlab.env' ~/.zshrc || echo 'set -o allexport; source $airlab_path/airlab.env; set +o allexport' >> ~/.zshrc; fi" "$robot_password"
+    if [ "$target_os" = "macos" ]; then
+        update_remote_rc_macos "$robot_ssh_address" "$airlab_path"
+    else
+        # Update remote .bashrc
+        remote_exec "$robot_ssh_address" "sed -i '/source .*airlab.env/d' ~/.bashrc" "$robot_password"
+        remote_exec "$robot_ssh_address" "grep -q 'source $airlab_path/airlab.env' ~/.bashrc || \
+            echo 'set -o allexport; source $airlab_path/airlab.env; set +o allexport' >> ~/.bashrc" "$robot_password"
+        # Update remote .zshrc for zsh users (default-zsh target, or an existing .zshrc)
+        remote_exec "$robot_ssh_address" "if command -v zsh >/dev/null 2>&1 && { [ -f ~/.zshrc ] || [ \"\$(basename \${SHELL:-})\" = zsh ]; }; then touch ~/.zshrc; sed -i '/source .*airlab.env/d' ~/.zshrc; grep -q 'source $airlab_path/airlab.env' ~/.zshrc || echo 'set -o allexport; source $airlab_path/airlab.env; set +o allexport' >> ~/.zshrc; fi" "$robot_password"
+    fi
 
     cat << EOF
 Installation details:
@@ -775,6 +949,13 @@ Installation details:
 Note: Run 'source ~/.bashrc' (or ~/.zshrc) on the remote system to apply changes
 EOF
     log_info "✅ Remote setup completed successfully!"
+
+    if [ "$target_os" = "macos" ]; then
+        # Nothing a reboot would apply that a new shell does not, and a FileVault Mac
+        # comes back to its unlock screen — unreachable over SSH until someone logs in.
+        log_info "No reboot needed on a Mac: open a new shell there to pick up the environment."
+        return 0
+    fi
 
     log_info "It is recommended to reboot the remote system"
     if [ "$no_reboot" = true ]; then

@@ -51,6 +51,19 @@ systems:
         default: true
 ```
 
+Setup asks the target for its OS (`uname -s`) and installs the matching tool:
+
+| Target OS | Tool installed | Source (online) |
+|---|---|---|
+| Linux | `airlab` (this tool, as a `.deb`) | `install_source` (default `strapsai/airlab`) |
+| macOS | `airlab-mac`, the macOS edition (no Docker) | `install_source_mac` (default `strapsai/airlab-mac`) |
+| anything else | refused before anything is sent | — |
+
+A Mac target needs Homebrew and Remote Login already enabled. Its `airlab.env` is
+written without the Docker keys, its rc files are edited without GNU `sed -i`, and it
+is not rebooted. `--airlab-src` must be a tree for the target's tool, so an `airlab`
+checkout is refused for a Mac and vice versa.
+
 After that you can run the command:
 ```bash
 airlab setup robot1 --path=/desired/installation/path
