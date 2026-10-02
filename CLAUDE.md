@@ -32,6 +32,7 @@ usr/local/bin/
       robot_info.py               # Sole owner of robot_info.yaml's format (read/write/env)
       robot_info.sh               # bash wrappers: update_robot_info / read_env_from_yaml
       env_file.sh                 # Safe KEY=VALUE editing of airlab.env
+      remote_os.sh                # Target OS detection (uname -s): Linux -> airlab, macOS -> airlab-mac
     version-control/
       vcs                         # VCS sub-command dispatcher
       init                        # Clone repos from YAML (--here, --check, --from-scratch)
