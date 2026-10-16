@@ -31,7 +31,7 @@ show_usage() {
     echo "  --dry-run                 Show what would be synchronized without making changes"
     echo "  --delete                  Overwrite the current contents in the directory on the remote machine (same as --delete in rsync)"
     echo "  --path=<relative_path>    Sync only the contents of the given path. The path should be relative, starting from the ws_path provided during setup"
-    echo "  --exclude=<pattern>       Exclude files or directories matching the pattern (same as rsync's --exclude)"
+    echo "  --exclude=<pattern>       Exclude files or directories matching the pattern (rsync pattern; beats .airlabignore)"
     echo "  --time                    Sync the system time on the remote machine with the local time (requires sudo access on remote)"
     echo "  --progress               Show progress during the sync operation (useful for large transfers)"
     echo "                           Note: This option may slow down the sync process for large files."
@@ -327,29 +327,36 @@ main() {
     # Define source and destination paths
     LOCAL_WS_PATH="$AIRLAB_PATH"
 
+    # What must not reach the machine (docs/sync.md, "What is not synced"): the built-in
+    # floor, then the --exclude flags, then $AIRLAB_PATH/.airlabignore. rsync takes the
+    # first matching rule, so this order is the precedence. _lib/airlabignore.py turns the
+    # gitignore-style rules into rsync filters and rewrites them for --path.
+    IGNORE_HELPER="$(dirname "$0")/_lib/airlabignore.py"
+    IGNORE_FILE="$AIRLAB_PATH/.airlabignore"
+    if ! FLOOR_OUT=$(python3 "$IGNORE_HELPER" floor --path="$SYNC_PATH"); then
+        log_error "Could not build the built-in ignore rules; not syncing"
+        exit 1
+    fi
+    FILTER_ARGS=()
+    [[ -n "$FLOOR_OUT" ]] && mapfile -t FILTER_ARGS <<< "$FLOOR_OUT"
+    FILTER_ARGS+=("${EXCLUDE_PATTERNS[@]}")
+    if [[ -e "$IGNORE_FILE" ]]; then
+        if ! FILE_OUT=$(python3 "$IGNORE_HELPER" rules "$IGNORE_FILE" --path="$SYNC_PATH"); then
+            log_error "Could not read $IGNORE_FILE; not syncing"
+            exit 1
+        fi
+        FILE_RULES=()
+        [[ -n "$FILE_OUT" ]] && mapfile -t FILE_RULES <<< "$FILE_OUT"
+        FILTER_ARGS+=("${FILE_RULES[@]}")
+        log_info "Ignore rules: $IGNORE_FILE (${#FILE_RULES[@]} rules) + built-in floor"
+    else
+        log_warn "No .airlabignore in $AIRLAB_PATH: only the built-in floor applies (copy /etc/airlab/.airlabignore)"
+    fi
+
     # Define rsync options
     RSYNC_OPTS=(
         -avz  # archive mode, verbose, compress
         -e "ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no -p $PORT" # Use SSH for remote connection
-        --exclude='.git'        # exclude version control
-        --exclude='build/'      # exclude build directories
-        --exclude='devel/'      # exclude devel directories
-        --exclude='log/'        # exclude log directories
-        --exclude='install/'    # exclude install directories
-        --exclude='*.pyc'       # exclude Python bytecode
-        --exclude='__pycache__' # exclude Python cache
-        # The per-block arch env files (Axis B: <block>/x86.env, <block>/jetpack.env) are
-        # TRACKED and REQUIRED — launch/ cannot render a single compose file without them.
-        # They must be re-admitted BEFORE the '*.env' exclude below, because rsync takes
-        # the first matching rule. Without this, `airlab sync` silently delivered a
-        # launch/ tree with zero .env files and every `docker compose` on the robot died
-        # with "stat launch/<block>/x86.env: no such file or directory".
-        # Matched at any depth so this also holds for `--path=launch` (which moves the
-        # transfer root, so a 'launch/**' pattern would not match).
-        --include='**/x86.env'
-        --include='**/jetpack.env'
-        --exclude='*.env'       # per-machine / secret env stays local: the root
-                                # airlab.env, storage_tools_ws config*.env, build noise
     )
 
     # Add dry-run flag if requested
@@ -369,10 +376,8 @@ main() {
         RSYNC_OPTS+=("--progress")
     fi
 
-    # Add exclude patterns to rsync options
-    if [[ ${#EXCLUDE_PATTERNS[@]} -gt 0 ]]; then
-        RSYNC_OPTS+=("${EXCLUDE_PATTERNS[@]}")
-    fi
+    # Filter rules built above: floor, --exclude flags, .airlabignore
+    RSYNC_OPTS+=("${FILTER_ARGS[@]}")
 
     # Perform the sync
     log_info "Syncing from $LOCAL_WS_PATH to $RSYNC_HOST:$REMOTE_WS_PATH (port $PORT)"
