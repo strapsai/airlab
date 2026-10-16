@@ -15,7 +15,7 @@ airlab sync <robot_name> [options]
 - `--dry-run`: Preview synchronization without making changes
 - `--delete`: Remove files on remote that don't exist locally
 - `--path=<relative_path>`: Sync specific directory relative to workspace
-- `--exclude=<pattern>`: Skip files/directories matching pattern
+- `--exclude=<pattern>`: Skip files/directories matching an rsync pattern (stronger than `.airlabignore`)
 - `--time`: Synchronize system time between local and remote
 - `--progress`: Show progress during the sync operation (useful for large transfers; may slow down the sync)
 - `--password`: Skip key-based SSH authentication and prompt for a password directly
@@ -38,25 +38,47 @@ airlab sync <robot_name> [options]
     ws_path: /path/to/workspace
   ```
 
-## Default Exclusions
-The following patterns are automatically excluded from synchronization:
-- `.git/`: Version control files
-- `build/`: Build directories
-- `devel/`: Development directories
-- `log/`: Log files
-- `install/`: Installation files
-- `*.pyc`: Python bytecode
-- `__pycache__`: Python cache directories
-- `*.env`: Environment files — **except** the launch tree's per-block arch env files
-  (`<block>/x86.env`, `<block>/jetpack.env`), which are re-admitted because they are
-  tracked, shared and required: `launch/` cannot render a single compose file without
-  them. What stays local is the per-machine root `airlab.env` and the `storage_tools_ws`
-  `config*.env` files.
+## What is not synced
 
-  The two `--include` rules sit **before** the `*.env` exclude — rsync applies the first
-  matching rule, so reordering them would silently stop delivering the arch envs. They
-  are also matched at any depth, so `--path=launch` (which moves the transfer root)
-  keeps working.
+`airlab sync` never copies these, whatever else is configured (the **built-in floor**):
+`.git`, `build/`, `devel/`, `log/`, `install/`, `*.pyc`, `__pycache__`, the workspace's own
+`airlab.env`, and `storage_tools_ws/**/config*.env`.
+
+Everything else is decided by **`$AIRLAB_PATH/.airlabignore`**: one file at the workspace root,
+committed with the workspace. `airlab setup local` copies the tool's default
+(`/etc/airlab/.airlabignore`) into a new workspace. If the workspace has no file, `airlab sync`
+warns and uses that default; only if the default is missing too does the floor alone apply.
+
+It uses `.gitignore` syntax:
+- blank lines and `#` comments are skipped; `\#` and `\!` start a literal `#` / `!` name;
+- `!pattern` re-includes; the **last** matching line wins;
+- a leading `/`, or a `/` anywhere but the end, anchors the pattern at the workspace root;
+  otherwise it matches a name at any depth;
+- a trailing `/` matches folders only;
+- `*`, `?`, `[...]` match within a name; `**` as a whole segment matches any number of folders,
+  none included (`a/**/b` matches `a/b`);
+- a file inside an excluded folder cannot be re-included.
+
+The default file:
+
+```gitignore
+*.env
+!/launch/*/*.env
+```
+
+(per-machine and secret `.env` files stay local; the launch tree's per-block arch env files —
+`x86.env`, `jetpack.env`, `spark_gb10.env`, any future arch — sync, because compose needs them).
+
+**Precedence**, strongest first: the floor, then `--exclude=` flags, then `.airlabignore`. The file
+cannot make the floor's files sync, and `--exclude` beats the file's `!`. `--exclude` values are
+rsync patterns, as before.
+
+**`--path=<dir>`** moves the transfer root: anchored rules apply relative to it, anchored rules for
+other parts of the tree don't apply, and `<dir>` itself is synced even if a rule ignores it or a
+parent folder.
+
+Each sync logs where its rules came from, e.g.
+`Ignore rules: /home/<user>/airlab_ws/.airlabignore (2 rules) + built-in floor`.
 
 ## Features
 

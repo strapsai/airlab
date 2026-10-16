@@ -31,6 +31,7 @@ airlab setup local --path=/desired/installation/path
 When running airlab setup local, the command:
 - Creates the Airlab directory structure
 - Copies initial configuration files
+- Installs the default `.airlabignore` (what `airlab sync` must not copy) unless the workspace already has one
 - Sets up the environment variables(airlab.env)
 - Updates the user's .bashrc file
 - Creates an initial airlab.env file
