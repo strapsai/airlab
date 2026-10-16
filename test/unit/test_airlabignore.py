@@ -129,6 +129,25 @@ def test_an_empty_file_gives_no_rules(tmp_path):
     assert filters(tmp_path, "") == []
 
 
+def test_a_bare_bang_is_dropped_because_rsync_reads_it_as_clear_all_rules(tmp_path):
+    """rsync treats a filter of exactly '!' as "clear every earlier rule", which would wipe the
+    built-in floor. A literal-'!' escape or a typo like `!!` would produce one."""
+    f = tmp_path / ".airlabignore"
+    f.write_text("!!\n\\!\n*.log\n")
+    cp = helper("rules", f, "--path=")
+    assert cp.returncode == 0, cp.stderr
+    assert cp.stdout.splitlines() == ["--exclude=*.log"]
+    assert "'!'" in cp.stderr
+
+
+def test_a_byte_order_mark_does_not_break_the_first_line(tmp_path):
+    f = tmp_path / ".airlabignore"
+    f.write_bytes(b"\xef\xbb\xbf*.env\n")
+    cp = helper("rules", f, "--path=")
+    assert cp.returncode == 0, cp.stderr
+    assert cp.stdout.splitlines() == ["--exclude=*.env"]
+
+
 # --- --path ------------------------------------------------------------------ #
 
 def test_anchored_rules_follow_the_transfer_root(tmp_path):

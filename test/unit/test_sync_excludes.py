@@ -16,7 +16,7 @@ import sys
 
 import pytest
 
-from airlab_testlib import CMDS, REPO_ROOT
+from airlab_testlib import CMDS, REPO_ROOT, Result
 
 pytestmark = pytest.mark.unit
 
@@ -67,10 +67,11 @@ def transferred(src, rules, tmp_path):
 
 
 @pytest.fixture
-def sync(airlab_ws, tmp_path, run):
-    """sync(*args, ignore=TEXT|None) -> (result, filters|None, src|None) for
-    `airlab sync robotA --dry-run *args`. The workspace holds MUST_SYNC + MUST_NOT_SYNC;
-    `ignore` becomes its .airlabignore (None: no file). filters is None if rsync never ran."""
+def sync(airlab_ws, tmp_path):
+    """sync(*args, ignore=TEXT|None, tool=CMDS) -> (result, filters|None, src|None) for
+    `airlab sync robotA --dry-run *args`, run from the command folder `tool`. The workspace
+    holds MUST_SYNC + MUST_NOT_SYNC; `ignore` becomes its .airlabignore (None: no file).
+    filters is None if rsync never ran."""
     for rel in MUST_SYNC + MUST_NOT_SYNC:
         p = airlab_ws / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -83,15 +84,17 @@ def sync(airlab_ws, tmp_path, run):
     for stub in bindir.iterdir():
         stub.chmod(0o755)
 
-    def _sync(*args, ignore=None):
+    def _sync(*args, ignore=None, tool=CMDS):
         f = airlab_ws / ".airlabignore"
         if ignore is None:
             f.unlink(missing_ok=True)
         else:
             f.write_text(ignore)
         argv_log.unlink(missing_ok=True)
-        res = run("robot-sync", "robotA", "--dry-run", *args,
-                  env={"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"})
+        env = dict(os.environ, AIRLAB_PATH=str(airlab_ws), NO_COLOR="1",
+                   PATH=f"{bindir}{os.pathsep}{os.environ['PATH']}")
+        res = Result(subprocess.run(["bash", str(tool / "robot-sync"), "robotA", "--dry-run", *args],
+                                    capture_output=True, text=True, env=env, timeout=60))
         if not argv_log.exists():
             return res, None, None
         argv = argv_log.read_text().splitlines()
@@ -144,12 +147,36 @@ def test_filters_are_floor_then_flags_then_file(sync):
 
 # --- missing, empty and broken ----------------------------------------------- #
 
-def test_without_a_file_the_floor_still_applies(sync, tmp_path):
+def test_without_a_workspace_file_the_tools_default_applies(sync, tmp_path):
+    """A workspace without .airlabignore (any checkout from before airlab_ws had the file) gets
+    the tool's default, not the floor alone: floor-only would ship the machines' other .env
+    files, overwrite their edits and, with --delete, remove robot-only ones."""
     res, rules, src = sync(ignore=None)
     assert res.rc == 0, res.out
-    assert "No .airlabignore" in res.out
+    assert "No .airlabignore" in res.out and "default" in res.out
+    got = transferred(src, rules, tmp_path)
+    assert set(MUST_NOT_SYNC).isdisjoint(got)
+    assert "launch/phys/spark_gb10.env" in got
+
+
+def test_without_any_file_the_floor_still_applies(sync, tmp_path):
+    """A broken install (no etc/airlab/.airlabignore beside the tool) still keeps the floor."""
+    tool = tmp_path / "bare" / "usr" / "local" / "bin" / "cmds"
+    shutil.copytree(CMDS, tool)
+    res, rules, src = sync(ignore=None, tool=tool)
+    assert res.rc == 0, res.out
+    assert "only the built-in floor" in res.out
     got = transferred(src, rules, tmp_path)
     assert {"airlab.env", "storage_tools_ws/storage_tools_device/config.env",
+            "build/colcon_prefix.sh.env"}.isdisjoint(got)
+
+
+def test_a_bang_line_cannot_clear_the_floor(sync, tmp_path):
+    """rsync reads a filter of exactly '!' as "clear all rules"; `\\!` or `!!` must not get there."""
+    res, rules, src = sync(ignore="\\!\n!!\n*.log\n")
+    assert res.rc == 0, res.out
+    got = transferred(src, rules, tmp_path)
+    assert {"airlab.env", "storage_tools_ws/storage_tools_server/config.prod.env",
             "build/colcon_prefix.sh.env"}.isdisjoint(got)
 
 

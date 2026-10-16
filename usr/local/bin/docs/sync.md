@@ -45,9 +45,9 @@ airlab sync <robot_name> [options]
 `airlab.env`, and `storage_tools_ws/**/config*.env`.
 
 Everything else is decided by **`$AIRLAB_PATH/.airlabignore`**: one file at the workspace root,
-committed with the workspace. `airlab setup local` installs the default from
-`/etc/airlab/.airlabignore` when the workspace has none. Without the file only the floor applies,
-and `airlab sync` warns.
+committed with the workspace. `airlab setup local` copies the tool's default
+(`/etc/airlab/.airlabignore`) into a new workspace. If the workspace has no file, `airlab sync`
+warns and uses that default; only if the default is missing too does the floor alone apply.
 
 It uses `.gitignore` syntax:
 - blank lines and `#` comments are skipped; `\#` and `\!` start a literal `#` / `!` name;
@@ -78,7 +78,7 @@ other parts of the tree don't apply, and `<dir>` itself is synced even if a rule
 parent folder.
 
 Each sync logs where its rules came from, e.g.
-`Ignore rules: /home/dtc/airlab_ws/.airlabignore (2 rules) + built-in floor`.
+`Ignore rules: /home/<user>/airlab_ws/.airlabignore (2 rules) + built-in floor`.
 
 ## Features
 

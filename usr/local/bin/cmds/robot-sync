@@ -331,8 +331,12 @@ main() {
     # floor, then the --exclude flags, then $AIRLAB_PATH/.airlabignore. rsync takes the
     # first matching rule, so this order is the precedence. _lib/airlabignore.py turns the
     # gitignore-style rules into rsync filters and rewrites them for --path.
+    # A workspace without the file gets the tool's default (etc/airlab/.airlabignore beside
+    # this script: /etc/airlab on an install), so its other .env files still stay local.
     IGNORE_HELPER="$(dirname "$0")/_lib/airlabignore.py"
     IGNORE_FILE="$AIRLAB_PATH/.airlabignore"
+    TOOL_ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
+    DEFAULT_IGNORE_FILE="${TOOL_ROOT%/}/etc/airlab/.airlabignore"
     if ! FLOOR_OUT=$(python3 "$IGNORE_HELPER" floor --path="$SYNC_PATH"); then
         log_error "Could not build the built-in ignore rules; not syncing"
         exit 1
@@ -340,17 +344,24 @@ main() {
     FILTER_ARGS=()
     [[ -n "$FLOOR_OUT" ]] && mapfile -t FILTER_ARGS <<< "$FLOOR_OUT"
     FILTER_ARGS+=("${EXCLUDE_PATTERNS[@]}")
+    RULES_FILE=""
     if [[ -e "$IGNORE_FILE" ]]; then
-        if ! FILE_OUT=$(python3 "$IGNORE_HELPER" rules "$IGNORE_FILE" --path="$SYNC_PATH"); then
-            log_error "Could not read $IGNORE_FILE; not syncing"
+        RULES_FILE="$IGNORE_FILE"
+    elif [[ -e "$DEFAULT_IGNORE_FILE" ]]; then
+        RULES_FILE="$DEFAULT_IGNORE_FILE"
+        log_warn "No .airlabignore in $AIRLAB_PATH: using the tool's default $DEFAULT_IGNORE_FILE (add one to the workspace)"
+    else
+        log_warn "No .airlabignore in $AIRLAB_PATH and no default at $DEFAULT_IGNORE_FILE: only the built-in floor applies"
+    fi
+    if [[ -n "$RULES_FILE" ]]; then
+        if ! FILE_OUT=$(python3 "$IGNORE_HELPER" rules "$RULES_FILE" --path="$SYNC_PATH"); then
+            log_error "Could not read $RULES_FILE; not syncing"
             exit 1
         fi
         FILE_RULES=()
         [[ -n "$FILE_OUT" ]] && mapfile -t FILE_RULES <<< "$FILE_OUT"
         FILTER_ARGS+=("${FILE_RULES[@]}")
-        log_info "Ignore rules: $IGNORE_FILE (${#FILE_RULES[@]} rules) + built-in floor"
-    else
-        log_warn "No .airlabignore in $AIRLAB_PATH: only the built-in floor applies (copy /etc/airlab/.airlabignore)"
+        log_info "Ignore rules: $RULES_FILE (${#FILE_RULES[@]} rules) + built-in floor"
     fi
 
     # Define rsync options

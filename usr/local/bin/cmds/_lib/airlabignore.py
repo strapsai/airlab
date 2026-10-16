@@ -99,7 +99,12 @@ def to_rsync(rule, path):
     flag = '--include=' if include else '--exclude='
     tail = '/' if dir_only else ''
     if not anchored:                        # a single name: rsync matches it at any depth
-        return [flag + segments[0] + tail]
+        pattern = segments[0] + tail
+        if pattern == '!':                  # rsync reads a bare '!' as "clear all earlier rules"
+            print("airlabignore: ignoring a rule for the name '!': rsync would read it as "
+                  "'clear all rules' and drop the built-in floor", file=sys.stderr)
+            return []
+        return [flag + pattern]
     out = []
     for rest in residuals(segments, path):
         for variant in zero_folder_variants(rest):
@@ -140,7 +145,7 @@ def main(argv=None):
         lines = FLOOR.splitlines()
     else:
         try:
-            with open(args.file, encoding='utf-8') as fh:
+            with open(args.file, encoding='utf-8-sig') as fh:   # -sig: drop a byte-order mark
                 lines = fh.read().splitlines()
         except (OSError, UnicodeDecodeError) as exc:
             print(f"airlabignore: cannot read {args.file}: {exc}", file=sys.stderr)
