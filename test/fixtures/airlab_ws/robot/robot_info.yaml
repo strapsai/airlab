@@ -1,6 +1,4 @@
   robotA:
-    robot_ssh: "dtc@10.0.0.10"
-    ws_path: "/home/dtc/airlab_ws"
     AIRLAB_PATH: "/home/dtc/airlab_ws"
     ROBOT_NAME: "robotA"
     AIRLAB_SYSTEM: "robotA"
@@ -14,6 +12,5 @@
     LAUNCH_FILE_PATH: "/home/dtc/airlab_ws/launch/sample.yaml"
     last_updated: "2026-07-09 00:00:00"
   baseA:
-    robot_ssh: "airlab@10.0.0.20"
-    ws_path: "/home/airlab/airlab_ws"
+    AIRLAB_PATH: "/home/airlab/airlab_ws"
     last_updated: "2026-07-09 00:00:00"

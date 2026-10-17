@@ -9,7 +9,7 @@ CANONICAL FORMAT — a top-level mapping of system name -> mapping of field -> v
 
       spot1-phys:
         ROS_DOMAIN_ID: "10"
-        ws_path: "/home/dtc/airlab_ws"
+        AIRLAB_PATH: "/home/dtc/airlab_ws"
         last_updated: "2026-04-02 10:29:04"
 
 There is deliberately **no `robots:` root key**. Every reader in the tool looks a
@@ -18,9 +18,15 @@ been written this way; only the old file-creation path disagreed, seeding `robot
 into a fresh file that every reader then failed on. A legacy `robots:`-rooted file
 is detected and reported rather than silently half-read.
 
-Three fields are BOOKKEEPING, not environment variables: `ws_path`, `robot_ssh` and
-`last_updated`. They live in the same mapping for convenience but are never written
-into a machine's `airlab.env` (`env` below excludes them).
+One field is BOOKKEEPING, not an environment variable: `last_updated`. It is never
+written into a machine's `airlab.env` (`env` below excludes it).
+
+Two former bookkeeping fields are RETIRED: `ws_path` duplicated the entry's own
+`AIRLAB_PATH` (commands now read the machine's workspace root from `AIRLAB_PATH`), and
+`robot_ssh` duplicated the address that robots.yaml resolves (nothing read it). They are
+dropped from the record on every save — `migrate` rewrites a file just to drop them —
+`set` refuses them, and they are never exported to or imported from an env file, where
+older provisions leaked them as stray variables.
 
 Writes are read-modify-write through PyYAML and re-emitted in the file's existing
 style, so a value containing quotes, backslashes or `|` round-trips intact — the
@@ -39,6 +45,7 @@ Usage:
   robot_info.py systems <file>
   robot_info.py envdiff <file> <system> <env_file>
   robot_info.py import  <file> <system> <env_file> [--prune] [--dry-run]
+  robot_info.py migrate <file>                      # drop RETIRED fields, rewrite
 """
 import json
 import os
@@ -54,7 +61,14 @@ except ImportError:
     sys.exit(2)
 
 # Fields that live in robot_info.yaml but are NOT environment variables.
-BOOKKEEPING = ("ws_path", "robot_ssh", "last_updated")
+BOOKKEEPING = ("last_updated",)
+
+# Former bookkeeping, now duplicates of other sources: ws_path == the entry's
+# AIRLAB_PATH, robot_ssh == what robots.yaml resolves. Dropped on save; never env.
+RETIRED = ("ws_path", "robot_ssh")
+
+# Everything that must never be treated as an environment variable.
+NOT_ENV = BOOKKEEPING + RETIRED
 
 INDENT_SYSTEM = "  "
 INDENT_FIELD = "    "
@@ -101,8 +115,24 @@ def emit(data):
     return "\n".join(lines) + "\n"
 
 
+def drop_retired(data):
+    """Remove RETIRED fields from every entry, in place. Returns how many went."""
+    dropped = 0
+    for fields in data.values():
+        if isinstance(fields, dict):
+            for key in RETIRED:
+                if key in fields:
+                    del fields[key]
+                    dropped += 1
+    return dropped
+
+
 def save(path, data):
-    """Write atomically, so an interrupted run can't leave a truncated registry."""
+    """Write atomically, so an interrupted run can't leave a truncated registry.
+
+    RETIRED fields are dropped first, so any write migrates the whole file.
+    """
+    drop_retired(data)
     directory = os.path.dirname(os.path.abspath(path)) or "."
     if not os.path.isdir(directory):
         die("directory does not exist: %s" % directory)
@@ -215,7 +245,7 @@ def envdiff(path, system, env_path):
     entry = load(path).get(system)
     if not isinstance(entry, dict):
         die("no entry for system %r in %s" % (system, path))
-    record = {k: str(v) for k, v in entry.items() if k not in BOOKKEEPING}
+    record = {k: str(v) for k, v in entry.items() if k not in NOT_ENV}
     env = parse_env_file(env_path)
 
     only_record = [k for k in record if k not in env]
@@ -256,12 +286,12 @@ def render_envdiff(system, record_label, env_label, result):
     if only_env:
         print("ONLY IN THE ENV FILE (%d) — not recorded:" % len(only_env))
         for key in only_env:
-            # These three are bookkeeping. Finding them as live environment variables
-            # means the machine was provisioned by a version whose env extraction
-            # trimmed the entry positionally and let them through; they do nothing on
-            # the machine. `sync-to --prune` clears them.
+            # Bookkeeping (current or retired). Finding it as a live environment
+            # variable means the machine was provisioned by a version whose env
+            # extraction trimmed the entry positionally and let it through; it does
+            # nothing on the machine. `sync-to --prune` clears it.
             note = "   # bookkeeping leaked by an older provision — harmless, " \
-                   "clear with sync-to --prune" if key in BOOKKEEPING else ""
+                   "clear with sync-to --prune" if key in NOT_ENV else ""
             print("  %s%s" % (key, note))
         print("")
 
@@ -283,16 +313,15 @@ def import_env(path, system, env_path, prune=False, dry_run=False):
     """
     data = load(path)
     entry = data.setdefault(system, {})
-    # Bookkeeping is operator-side truth (`robot_ssh` comes from address resolution,
-    # `ws_path` from setup). A machine provisioned before the extraction fix has those
-    # names sitting in its airlab.env as stray variables; importing them back would let
-    # a leak overwrite the record that produced it.
-    env = {k: v for k, v in parse_env_file(env_path).items() if k not in BOOKKEEPING}
+    # Bookkeeping is operator-side, and the retired fields must not come back. A
+    # machine provisioned before the extraction fix has `ws_path` / `robot_ssh` sitting
+    # in its airlab.env as stray variables; importing them would re-add them.
+    env = {k: v for k, v in parse_env_file(env_path).items() if k not in NOT_ENV}
 
     added = [k for k in env if k not in entry]
     changed = [k for k in env if k in entry and str(entry[k]) != env[k]]
     removed = [k for k in entry
-               if k not in env and k not in BOOKKEEPING] if prune else []
+               if k not in env and k not in NOT_ENV] if prune else []
 
     if not dry_run:
         for key in removed:
@@ -314,6 +343,16 @@ def main(argv):
     if cmd == "systems":
         for system in load(path):
             print(system)
+        return 0
+
+    if cmd == "migrate":                              # file-wide, no <system>
+        data = load(path)
+        dropped = drop_retired(data)
+        if dropped:
+            save(path, data)
+            print("dropped %d retired field(s) (%s)" % (dropped, ", ".join(RETIRED)))
+        else:
+            print("nothing to migrate")
         return 0
 
     if len(argv) < 4:
@@ -341,7 +380,7 @@ def main(argv):
             die("no entry for system %r in %s" % (system, path))
         wrote = False
         for key, value in entry.items():
-            if key in BOOKKEEPING:
+            if key in NOT_ENV:
                 continue
             print("%s=%s" % (key, str(value) if raw else env_quote(str(value))))
             wrote = True
@@ -383,6 +422,9 @@ def main(argv):
             sys.stderr.write(__doc__)
             return 2
         field, value = argv[4], argv[5]
+        if field in RETIRED:
+            die("%r is a retired field; the workspace root is AIRLAB_PATH and the "
+                "address comes from robots.yaml" % field)
         no_overwrite = "--no-overwrite" in argv[6:]
         data = load(path)
         effective = set_field(data, system, field, value, no_overwrite)

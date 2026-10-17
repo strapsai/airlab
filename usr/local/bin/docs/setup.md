@@ -150,15 +150,15 @@ Located at `$AIRLAB_PATH/robot/robot_info.yaml`, stores robot-specific informati
 System names are at the **top level** — there is no `robots:` root key:
 ```yaml
   robot_name:
-    robot_ssh: "username@ip_address"
-    ws_path: "/path/to/workspace"
+    AIRLAB_PATH: "/path/to/workspace"
     last_updated: "YYYY-MM-DD HH:MM:SS"
 ```
 
-`robot_ssh`, `ws_path` and `last_updated` are **bookkeeping**, not environment
-variables: the tool uses them to reach the machine and to date the entry, and
-excludes them when regenerating that machine's `airlab.env`. Every other field is
-an environment variable.
+Every field except `last_updated` is an environment variable for that machine's
+`airlab.env`. `AIRLAB_PATH` doubles as the machine's workspace root for the commands
+that act on it (`sync`, `docker-*`, `robot-launch`, `env`); its SSH address comes from
+`robots.yaml`. The former `ws_path` and `robot_ssh` fields are retired and dropped on
+every write.
 
 Example:
 ```yaml
@@ -172,8 +172,7 @@ Example:
     GROUP_ID: "1000"
     GROUP_NAME: "airlab"
     USER_NAME: "airlab"
-    ws_path: "/home/airlab/airlab_ws"
-    robot_ssh: "airlab@10.3.1.130"
+    AIRLAB_PATH: "/home/airlab/airlab_ws"
     last_updated: "2025-01-04 14:00:08"
 
 ```

@@ -31,11 +31,12 @@ airlab sync <robot_name> [options]
 
 ### Robot Information (`robot_info.yaml`)
 - Location: `$AIRLAB_PATH/robot/robot_info.yaml`
-- Contains workspace paths for remote systems
+- The destination is the system's recorded `AIRLAB_PATH` (its workspace root), which
+  must be an absolute, literal path
 - Format:
   ```yaml
   robot_name:
-    ws_path: /path/to/workspace
+    AIRLAB_PATH: "/path/to/workspace"
   ```
 
 ## What is not synced

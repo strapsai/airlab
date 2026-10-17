@@ -175,8 +175,8 @@ main() {
 
     # NOTE: `airlab ssh` only opens an interactive shell, so it needs just a
     # resolvable SSH address (above) — NOT a workspace. We deliberately do not read
-    # robot_info.yaml / ws_path here, so ssh keeps working when ws_path is empty,
-    # unset, or robot_info.yaml is absent (matching `ping` and `auth`).
+    # robot_info.yaml here, so ssh keeps working when the machine has no record
+    # or robot_info.yaml is absent (matching `ping` and `auth`).
 
     # Authenticate via SSH (robot_password is set by ssh_authenticate)
     robot_password=""

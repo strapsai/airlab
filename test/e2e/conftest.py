@@ -73,11 +73,11 @@ def e2e_ws(tmp_path, robot):
         "        default: true\n"
         f"{port_line}"
     )
-    # robot_info.yaml: top-level <name> with ws_path (parse_yaml reads "<name>.ws_path")
+    # robot_info.yaml: top-level <name>; the workspace root is its AIRLAB_PATH
+    # (parse_yaml reads "<name>.AIRLAB_PATH")
     (ws / "robot" / "robot_info.yaml").write_text(
         f"{robot['name']}:\n"
-        f"  ws_path: {robot['ws']}\n"
-        f"  robot_ssh: {robot['user']}@{robot['addr']}\n"
+        f"  AIRLAB_PATH: {robot['ws']}\n"
     )
     return ws
 
