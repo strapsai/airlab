@@ -184,13 +184,13 @@ main() {
             exit 1
         fi
         # Parse the workspace path and handle errors
-        LAUNCH_DIR=$(parse_yaml "$ROBOT_INFO_PATH" "$SYSTEM_NAME.ws_path") || {
-            log_error "Failed to get workspace path from robot_info.yaml"
+        LAUNCH_DIR=$(parse_yaml "$ROBOT_INFO_PATH" "$SYSTEM_NAME.AIRLAB_PATH") || {
+            log_error "Failed to read the workspace path (AIRLAB_PATH) from robot_info.yaml"
             exit 1
         }
         
-        if [[ -z "$LAUNCH_DIR" ]]; then
-            log_error "Workspace path is empty in robot_info.yaml"
+        if [[ "$LAUNCH_DIR" != /* || "$LAUNCH_DIR" == *'$'* ]]; then
+            log_error "AIRLAB_PATH for '$SYSTEM_NAME' in robot_info.yaml must be an absolute path (got '$LAUNCH_DIR')"
             exit 1
         fi 
 

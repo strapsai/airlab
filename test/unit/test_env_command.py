@@ -162,7 +162,7 @@ def test_full_round_trip_preserves_every_value(tmp_path, env_file):
     regenerated.write_text(py("env", reg, "botA").stdout)
 
     stored = {k: v for k, v in yaml.safe_load(reg.read_text())["botA"].items()
-              if k not in ("ws_path", "robot_ssh", "last_updated")}
+              if k != "last_updated"}
 
     dump = "; ".join('printf "%s\\037%s\\036" ' + f'"{k}" "${{{k}}}"' for k in stored)
     r = subprocess.run(["bash", "-c", f'set -o allexport; source "$1" || exit 9; {dump}',
@@ -194,26 +194,25 @@ def test_import_merges_by_default(tmp_path, env_file):
 
 def test_import_prune_removes_fields_the_env_file_lacks(tmp_path, env_file):
     reg = tmp_path / "robot_info.yaml"
-    reg.write_text('  botA:\n    ONLY_IN_RECORD: "drop"\n    ws_path: "/ws"\n'
+    reg.write_text('  botA:\n    ONLY_IN_RECORD: "drop"\n'
                    '    last_updated: "2026-01-01 00:00:00"\n')
     py("import", reg, "botA", env_file, "--prune")
     stored = yaml.safe_load(reg.read_text())["botA"]
     assert "ONLY_IN_RECORD" not in stored
-    assert stored["ws_path"] == "/ws", "bookkeeping survives --prune"
+    assert "last_updated" in stored, "bookkeeping survives --prune"
 
 
 def test_import_never_takes_bookkeeping_from_the_env_file(tmp_path):
     """A machine provisioned before the extraction fix has ws_path/robot_ssh sitting
-    in its airlab.env. Importing those would let the leak overwrite the record."""
+    in its airlab.env. They are retired fields: importing them would bring them back."""
     reg = tmp_path / "robot_info.yaml"
-    reg.write_text('  botA:\n    ws_path: "/real"\n    robot_ssh: "dtc@real"\n'
-                   '    last_updated: "2026-01-01 00:00:00"\n')
+    reg.write_text('  botA:\n    last_updated: "2026-01-01 00:00:00"\n')
     env = tmp_path / "airlab.env"
-    env.write_text("ws_path=/leaked\nrobot_ssh=dtc@leaked\nA=1\n")
+    env.write_text("ws_path=/leaked\nrobot_ssh=dtc@leaked\nlast_updated=x\nA=1\n")
     py("import", reg, "botA", env)
     stored = yaml.safe_load(reg.read_text())["botA"]
-    assert stored["ws_path"] == "/real"
-    assert stored["robot_ssh"] == "dtc@real"
+    assert "ws_path" not in stored and "robot_ssh" not in stored
+    assert stored["last_updated"] != "x"
     assert stored["A"] == "1"
 
 
@@ -261,7 +260,7 @@ def test_envdiff_flags_a_shell_literal_against_a_resolved_value(tmp_path):
 
 def test_envdiff_names_leaked_bookkeeping_for_what_it_is(tmp_path):
     reg = tmp_path / "robot_info.yaml"
-    reg.write_text('  botA:\n    A: "1"\n    ws_path: "/ws"\n'
+    reg.write_text('  botA:\n    A: "1"\n'
                    '    last_updated: "2026-01-01 00:00:00"\n')
     env = tmp_path / "airlab.env"
     env.write_text("A=1\nws_path=/ws\nrobot_ssh=dtc@x\n")
@@ -303,7 +302,7 @@ def remote(airlab_ws, tmp_path):
     env_path.write_text("ROS_DOMAIN_ID=1\nLOCAL_ONLY=keep-me\n")
 
     info = airlab_ws / "robot" / "robot_info.yaml"
-    for key, value in {"ws_path": str(home), **SYNC_VALUES}.items():
+    for key, value in {"AIRLAB_PATH": str(home), **SYNC_VALUES}.items():
         assert py("set", info, "robotA", key, value).returncode == 0
 
     bindir = tmp_path / "bin"

@@ -197,12 +197,12 @@ main() {
         if [[ -n "$COMPOSE_NAME" ]]; then
             # Parse the workspace path and handle errors
             log_info "Using compose file from command line"
-            LAUNCH_DIR=$(parse_yaml "$ROBOT_INFO_PATH" "$SYSTEM_NAME.ws_path") || {
-                log_error "Failed to get workspace path from robot_info.yaml"
+            LAUNCH_DIR=$(parse_yaml "$ROBOT_INFO_PATH" "$SYSTEM_NAME.AIRLAB_PATH") || {
+                log_error "Failed to read the workspace path (AIRLAB_PATH) from robot_info.yaml"
                 exit 1
             }
-            if [[ -z "$LAUNCH_DIR" ]]; then
-                log_error "Workspace path is empty in robot_info.yaml"
+            if [[ "$LAUNCH_DIR" != /* || "$LAUNCH_DIR" == *'$'* ]]; then
+                log_error "AIRLAB_PATH for '$SYSTEM_NAME' in robot_info.yaml must be an absolute path (got '$LAUNCH_DIR')"
                 exit 1
             fi  
             docker_build_path="$LAUNCH_DIR/$COMPOSE_NAME"    
@@ -221,10 +221,14 @@ main() {
         log_info "Building Docker file at $docker_build_path"
 
         #setup remote ws path
-        remote_airlab_path=$(parse_yaml "$ROBOT_INFO_PATH" "$SYSTEM_NAME.ws_path") || {
-            log_error "Failed to get workspace path from robot_info.yaml"
+        remote_airlab_path=$(parse_yaml "$ROBOT_INFO_PATH" "$SYSTEM_NAME.AIRLAB_PATH") || {
+            log_error "Failed to read the workspace path (AIRLAB_PATH) from robot_info.yaml"
             exit 1
         }
+        if [[ "$remote_airlab_path" != /* || "$remote_airlab_path" == *'$'* ]]; then
+            log_error "AIRLAB_PATH for '$SYSTEM_NAME' in robot_info.yaml must be an absolute path (got '$remote_airlab_path')"
+            exit 1
+        fi
         
         # Launch on remote system with error handling
         if ! "${SSHPASS_PREFIX[@]}" ssh -t "$ROBOT_SSH_ADDRESS" "export AIRLAB_PATH='$remote_airlab_path' && docker compose -f "$docker_build_path" build"; then

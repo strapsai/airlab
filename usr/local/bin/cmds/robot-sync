@@ -30,7 +30,7 @@ show_usage() {
     echo -e "${YELLOW}Options:${NC}"
     echo "  --dry-run                 Show what would be synchronized without making changes"
     echo "  --delete                  Overwrite the current contents in the directory on the remote machine (same as --delete in rsync)"
-    echo "  --path=<relative_path>    Sync only the contents of the given path. The path should be relative, starting from the ws_path provided during setup"
+    echo "  --path=<relative_path>    Sync only the contents of the given path. The path should be relative, starting from the robot's AIRLAB_PATH (its workspace root, from robot_info.yaml)"
     echo "  --exclude=<pattern>       Exclude files or directories matching the pattern (rsync pattern; beats .airlabignore)"
     echo "  --time                    Sync the system time on the remote machine with the local time (requires sudo access on remote)"
     echo "  --progress               Show progress during the sync operation (useful for large transfers)"
@@ -281,13 +281,13 @@ main() {
         exit 1
     fi
 
-    REMOTE_WS_PATH=$(parse_yaml "$ROBOT_INFO_PATH" "$ROBOT_NAME.ws_path") || {
-        log_error "Failed to get workspace path from robot_info.yaml"
+    REMOTE_WS_PATH=$(parse_yaml "$ROBOT_INFO_PATH" "$ROBOT_NAME.AIRLAB_PATH") || {
+        log_error "Failed to read the workspace path (AIRLAB_PATH) from robot_info.yaml"
         exit 1
     }
 
-    if [[ -z "$REMOTE_WS_PATH" ]]; then
-        log_error "Workspace path is empty in robot_info.yaml"
+    if [[ "$REMOTE_WS_PATH" != /* || "$REMOTE_WS_PATH" == *'$'* ]]; then
+        log_error "AIRLAB_PATH for '$ROBOT_NAME' in robot_info.yaml must be an absolute path (got '$REMOTE_WS_PATH')"
         exit 1
     fi
 

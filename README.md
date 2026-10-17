@@ -416,7 +416,9 @@ Were the file sourced instead, one machine's expansion would be frozen into the 
 
 #### Bookkeeping fields
 
-`ws_path`, `robot_ssh` and `last_updated` live in `robot_info.yaml` but are **not** environment variables. `sync-to` never writes them to a machine, and `sync-from` never imports them — importing would let a stale value overwrite the record that produced it. If `compare` reports them as present in a machine's `airlab.env`, that machine was provisioned by a version whose env extraction let them through; they do nothing there, and `sync-to --prune` clears them.
+`last_updated` lives in `robot_info.yaml` but is **not** an environment variable: `sync-to` never writes it to a machine, and `sync-from` never imports it.
+
+A machine's workspace root is the record's own `AIRLAB_PATH`, and its address comes from `robots.yaml`. The two fields that used to duplicate them, `ws_path` and `robot_ssh`, are **retired**: every write to `robot_info.yaml` drops them (`python3 usr/local/bin/cmds/_lib/robot_info.py migrate robot/robot_info.yaml` strips a file in one go), and they are never exported or imported. If `compare` reports them in a machine's `airlab.env`, an older provision leaked them there; they do nothing, and `sync-to --prune` clears them.
 
 #### Exit status
 
@@ -1215,8 +1217,8 @@ This folder contains the configuration files that define robot-specific settings
 
     ```yaml
     spot1:
-      ws_path: "/home/airlab/airlab_ws"
-      robot_ssh: "airlab@10.3.1.14"
+      AIRLAB_PATH: "/home/airlab/airlab_ws"
+      ROS_DOMAIN_ID: "10"
       last_updated: "2024-12-22 19:48:31"
     ```
 
