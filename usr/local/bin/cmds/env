@@ -252,12 +252,15 @@ cmd_sync_to() {
     else
         cp "$current" "$merged"
     fi
+    # --raw: env_file_set quotes each value itself. The default `env` output is
+    # already shell-quoted, and staging that wrapped every non-token value twice
+    # (`KEY="\"a b\""`), growing by one layer of escapes on each sync.
     local key value line
     while IFS= read -r line; do
         key="${line%%=*}"; value="${line#*=}"
         env_file_set "$merged" "$key" "$value" \
             || error_exit "Could not stage $key"
-    done < <(python3 "$ROBOT_INFO_PY" env "$LOCAL_ROBOT_INFO" "$system")
+    done < <(python3 "$ROBOT_INFO_PY" env "$LOCAL_ROBOT_INFO" "$system" --raw)
 
     if diff -q "$current" "$merged" >/dev/null 2>&1; then
         log_info "$REMOTE_SSH:$REMOTE_ENV already matches the record; nothing to do."

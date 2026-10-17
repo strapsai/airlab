@@ -35,7 +35,7 @@ a round trip through the registry unchanged.
 Usage:
   robot_info.py get     <file> <system> <field>
   robot_info.py set     <file> <system> <field> <value> [--no-overwrite]
-  robot_info.py env     <file> <system>
+  robot_info.py env     <file> <system> [--raw]
   robot_info.py systems <file>
   robot_info.py envdiff <file> <system> <env_file>
   robot_info.py import  <file> <system> <env_file> [--prune] [--dry-run]
@@ -147,9 +147,17 @@ def strip_surrounding_quotes(value):
     airlab.env quotes multi-word values (`AIRLAB_COMPOSE_PROFILES="fleet fleet-build"`),
     which is shell syntax, not part of the value. The registry stores the logical value,
     so quoting is re-applied on the way out by env_quote() rather than accumulating.
+
+    Inside double quotes, `\\"` and `\\\\` are decoded: they are the two escapes env_quote()
+    adds, so a value written out and read back comes back unchanged instead of growing
+    a layer of backslashes on every sync. Anything else (`\\$`, single quotes) is kept
+    as written.
     """
     if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-        return value[1:-1]
+        inner = value[1:-1]
+        if value[0] == '"':
+            inner = re.sub(r'\\(["\\])', r"\1", inner)
+        return inner
     return value
 
 
@@ -324,6 +332,10 @@ def main(argv):
         return 0
 
     if cmd == "env":
+        # Default: shell-ready lines (`KEY="a b"`), for writing straight to a file.
+        # --raw: the bare values, for a caller that quotes them itself (env_file_set
+        # in `airlab env sync-to`); quoting both ways wrapped every value twice.
+        raw = "--raw" in argv[4:]
         entry = load(path).get(system)
         if not isinstance(entry, dict):
             die("no entry for system %r in %s" % (system, path))
@@ -331,7 +343,7 @@ def main(argv):
         for key, value in entry.items():
             if key in BOOKKEEPING:
                 continue
-            print("%s=%s" % (key, env_quote(str(value))))
+            print("%s=%s" % (key, str(value) if raw else env_quote(str(value))))
             wrote = True
         return 0 if wrote else 1
 
