@@ -28,11 +28,23 @@ err() { echo -e "${RED}[ERROR]${NC} $1" >&2; }
 
 emit=false
 dry_run=false
-[ "${1:-}" = "--emit" ] && { emit=true; shift; }
-[ "${1:-}" = "--dry-run" ] && { dry_run=true; shift; }
-if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-    cat <<'EOF'
-Usage: airlab compose [docker-compose-args...]
+build_only=false
+profiles_override=""
+profiles_override_set=false
+# airlab's own options come first; the first argument that isn't one of them (or a
+# literal `--`) starts the Compose arguments, which are passed through verbatim.
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --emit)        emit=true; shift ;;
+        --dry-run)     dry_run=true; shift ;;
+        --build-only)  build_only=true; shift ;;
+        --profiles)
+            [ $# -ge 2 ] || { err "--profiles needs a value, e.g. --profiles fleet,db"; exit 2; }
+            profiles_override="$2"; profiles_override_set=true; shift 2 ;;
+        --profiles=*)  profiles_override="${1#*=}"; profiles_override_set=true; shift ;;
+        -h|--help)
+            cat <<'EOF'
+Usage: airlab compose [--dry-run] [--build-only] [--profiles <a,b,...>] [docker-compose-args...]
 
 This machine's `docker compose` command — prefilled, or run for you.
 
@@ -42,6 +54,17 @@ This machine's `docker compose` command — prefilled, or run for you.
   airlab compose --dry-run up -d
                               Print exactly what would run; run nothing.
 
+Profile selection (put these BEFORE the Compose arguments):
+  --build-only                Keep only the profiles whose name ends in "-build".
+                              Errors if none remain.
+  --profiles <a,b,...>        Use this profile list instead of AIRLAB_COMPOSE_PROFILES
+                              (comma- or space-separated). Combined with --build-only,
+                              --build-only filters this list.
+
+  airlab compose --build-only               prefill a build-profiles-only command
+  airlab compose --build-only build         build just the -build profiles
+  airlab compose --profiles fleet,db up -d  bring up exactly these profiles
+
 The elected compose file and profiles come from airlab.env, so the SAME command brings
 the right stack up on a basestation, a robot, or a GPU box. Arguments are handed to
 Compose verbatim — config, ps, logs, build, restart and friends all work.
@@ -50,8 +73,11 @@ Set in airlab.env, e.g.:
   AIRLAB_COMPOSE_FILE=docker-compose-basestation.yaml
   AIRLAB_COMPOSE_PROFILES="fleet storage-tools"
 EOF
-    exit 0
-fi
+            exit 0 ;;
+        --)            shift; break ;;
+        *)             break ;;
+    esac
+done
 
 if [ -z "${AIRLAB_PATH:-}" ]; then
     err "AIRLAB_PATH is not set — run 'airlab setup local' first."
@@ -63,8 +89,32 @@ if [ ! -f "$env_file" ]; then
     exit 1
 fi
 
-# Read KEY=VALUE from airlab.env (last definition wins), stripping surrounding quotes.
-read_env() { sed -n "s/^$1=//p" "$env_file" | tail -1 | sed -e 's/^["'\'']//' -e 's/["'\'']$//'; }
+# Read KEY=VALUE from airlab.env as TEXT (never sourced); the last assignment wins.
+# Tolerates what a hand-edited env file contains: leading whitespace, an `export `
+# prefix, a single- or double-quoted value with anything after the closing quote
+# (trailing spaces, `# comment`), and an unquoted value with a trailing ` # comment`
+# or trailing whitespace. Quoted values are taken literally up to the closing quote.
+read_env() {
+    local key="$1" line val out=""
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        if [[ "$line" == export[[:space:]]* ]]; then
+            line="${line#export}"
+            line="${line#"${line%%[![:space:]]*}"}"
+        fi
+        [[ "$line" == "${key}="* ]] || continue
+        val="${line#"${key}="}"
+        case "$val" in
+            \"*) val="${val#\"}"; val="${val%%\"*}" ;;
+            \'*) val="${val#\'}"; val="${val%%\'*}" ;;
+            *)   val="${val%%[[:space:]]#*}"
+                 val="${val%"${val##*[![:space:]]}"}" ;;
+        esac
+        out="$val"
+    done < "$env_file"
+    printf '%s' "$out"
+}
 
 compose_file="$(read_env AIRLAB_COMPOSE_FILE)"
 profiles_raw="$(read_env AIRLAB_COMPOSE_PROFILES)"
@@ -78,20 +128,44 @@ if [ ! -f "${AIRLAB_PATH}/launch/${compose_file}" ]; then
     err "AIRLAB_COMPOSE_FILE='${compose_file}' not found under ${AIRLAB_PATH}/launch/."
     exit 1
 fi
-if [ -z "$profiles_raw" ]; then
-    err "AIRLAB_COMPOSE_PROFILES is not set in ${env_file}."
-    err "Set it to the profiles this machine runs, e.g. \"fleet storage-tools\""
+if [ "$profiles_override_set" = true ]; then
+    profiles_raw="$profiles_override"
+    profiles_src="--profiles"
+else
+    profiles_src="AIRLAB_COMPOSE_PROFILES"
+fi
+if [ -z "${profiles_raw//[[:space:],]/}" ]; then
+    if [ "$profiles_override_set" = true ]; then
+        err "--profiles was given an empty list."
+    else
+        err "AIRLAB_COMPOSE_PROFILES is not set in ${env_file}."
+        err "Set it to the profiles this machine runs, e.g. \"fleet storage-tools\""
+    fi
+    exit 1
+fi
+
+# Profiles are space- or comma-separated.
+read -r -a _all_profiles <<< "${profiles_raw//,/ }"
+_profiles=()
+for p in "${_all_profiles[@]}"; do
+    [ -z "$p" ] && continue
+    if [ "$build_only" = true ] && [[ "$p" != *-build ]]; then
+        continue
+    fi
+    _profiles+=("$p")
+done
+if [ "$build_only" = true ] && [ "${#_profiles[@]}" -eq 0 ]; then
+    err "--build-only: no profile ending in '-build' in ${profiles_src} (${_all_profiles[*]})."
     exit 1
 fi
 
 # Build the command (run from $AIRLAB_PATH/launch — the shell function cd's there).
 # No --env-file: airlab.env is already sourced/exported into the operator's shell
 # (the same assumption the launch Makefiles make), so compose interpolates ${VAR}
-# from the environment. Profiles are space- or comma-separated.
+# from the environment.
 cmd="docker compose -f ${compose_file}"
-read -r -a _profiles <<< "${profiles_raw//,/ }"
 for p in "${_profiles[@]}"; do
-    [ -n "$p" ] && cmd="${cmd} --profile ${p}"
+    cmd="${cmd} --profile ${p}"
 done
 cmd="${cmd} "   # trailing space so you type the subcommand (up -d / down / config / ...)
 
@@ -125,7 +199,7 @@ cd "${AIRLAB_PATH}/launch" || { err "Cannot cd to ${AIRLAB_PATH}/launch"; exit 1
 
 run_cmd=(docker compose --env-file "${env_file}" -f "${compose_file}")
 for p in "${_profiles[@]}"; do
-    [ -n "$p" ] && run_cmd+=(--profile "$p")
+    run_cmd+=(--profile "$p")
 done
 run_cmd+=("$@")
 

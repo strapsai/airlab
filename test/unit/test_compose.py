@@ -10,11 +10,12 @@ airlab.env into the environment. That last case is why the run path passes
 `docker` is stubbed on PATH, so nothing is actually started.
 """
 import os
+import shutil
 import subprocess
 
 import pytest
 
-from airlab_testlib import CMDS
+from airlab_testlib import CMDS, REPO_ROOT
 
 pytestmark = pytest.mark.unit
 
@@ -168,3 +169,228 @@ def test_help_documents_both_modes(run_compose):
     out = run_compose("--help").stdout
     assert "airlab compose up -d" in out
     assert "Prefill" in out or "prefill" in out
+
+
+# --- airlab.env parsing (read as text, never sourced) ----------------------- #
+
+def _profiles_in(text):
+    """The --profile values in a rendered command, in order."""
+    words = text.split()
+    return [words[i + 1] for i, w in enumerate(words) if w == "--profile"]
+
+
+@pytest.mark.parametrize("line", [
+    # closing quote followed by trailing whitespace — left a stray `"` before
+    'AIRLAB_COMPOSE_PROFILES="db fleet vlm-zoo-orchestrator" ',
+    'AIRLAB_COMPOSE_PROFILES="db fleet vlm-zoo-orchestrator"\t',
+    # trailing comment, quoted and unquoted
+    'AIRLAB_COMPOSE_PROFILES="db fleet vlm-zoo-orchestrator"  # basestation',
+    'AIRLAB_COMPOSE_PROFILES=db,fleet,vlm-zoo-orchestrator # basestation',
+    # single quotes
+    "AIRLAB_COMPOSE_PROFILES='db fleet vlm-zoo-orchestrator'",
+    "AIRLAB_COMPOSE_PROFILES='db fleet vlm-zoo-orchestrator'  # c",
+    # export prefix (with and without quotes, with leading indentation)
+    'export AIRLAB_COMPOSE_PROFILES="db fleet vlm-zoo-orchestrator"',
+    '  export AIRLAB_COMPOSE_PROFILES=db,fleet,vlm-zoo-orchestrator',
+    # unquoted with trailing whitespace, and a CRLF line ending
+    'AIRLAB_COMPOSE_PROFILES=db,fleet,vlm-zoo-orchestrator   ',
+    'AIRLAB_COMPOSE_PROFILES="db fleet vlm-zoo-orchestrator"\r',
+])
+def test_env_value_is_unquoted_robustly(run_compose, ws, line):
+    (ws / "airlab.env").write_text(
+        'AIRLAB_COMPOSE_FILE="docker-compose-basestation.yaml"\n' + line + "\n")
+    cp = run_compose("--emit")
+    assert cp.returncode == 0, cp.stderr
+    assert _profiles_in(cp.stdout) == ["db", "fleet", "vlm-zoo-orchestrator"], cp.stdout
+    assert '"' not in cp.stdout and "'" not in cp.stdout and "#" not in cp.stdout
+
+
+@pytest.mark.parametrize("line", [
+    'AIRLAB_COMPOSE_FILE="docker-compose-basestation.yaml" ',
+    "AIRLAB_COMPOSE_FILE='docker-compose-basestation.yaml' # elected",
+    "export AIRLAB_COMPOSE_FILE=docker-compose-basestation.yaml",
+])
+def test_compose_file_value_is_unquoted_robustly(run_compose, ws, line):
+    (ws / "airlab.env").write_text(line + '\nAIRLAB_COMPOSE_PROFILES="fleet"\n')
+    cp = run_compose("--emit")
+    assert cp.returncode == 0, cp.stderr
+    assert cp.stdout.startswith("docker compose -f docker-compose-basestation.yaml ")
+
+
+def test_last_assignment_wins(run_compose, ws):
+    (ws / "airlab.env").write_text(
+        'AIRLAB_COMPOSE_FILE="docker-compose-basestation.yaml"\n'
+        'AIRLAB_COMPOSE_PROFILES="old"\n'
+        'export AIRLAB_COMPOSE_PROFILES="new other" # wins\n')
+    assert _profiles_in(run_compose("--emit").stdout) == ["new", "other"]
+
+
+def test_env_file_is_not_sourced(run_compose, ws, tmp_path):
+    marker = tmp_path / "sourced"
+    (ws / "airlab.env").write_text(
+        f"touch {marker}\n" + ENV_BODY + 'AIRLAB_COMPOSE_PROFILES="$(touch ' + str(marker) + ')x"\n')
+    run_compose("--emit")
+    assert not marker.exists(), "airlab.env must be read as text, never executed"
+
+
+def test_similar_key_prefix_is_not_matched(run_compose, ws):
+    (ws / "airlab.env").write_text(ENV_BODY + 'AIRLAB_COMPOSE_PROFILES_EXTRA="nope"\n')
+    assert _profiles_in(run_compose("--emit").stdout) == ["fleet", "storage-tools"]
+
+
+# --- --build-only / --profiles ---------------------------------------------- #
+
+BUILD_ENV = (
+    'AIRLAB_COMPOSE_FILE="docker-compose-basestation.yaml"\n'
+    'AIRLAB_COMPOSE_PROFILES="db fleet-build fleet reid-build"\n'
+)
+
+
+@pytest.fixture
+def build_ws(ws):
+    (ws / "airlab.env").write_text(BUILD_ENV)
+    return ws
+
+
+def test_build_only_emit_keeps_only_build_profiles(run_compose, build_ws):
+    cp = run_compose("--emit", "--build-only")
+    assert cp.returncode == 0, cp.stderr
+    assert _profiles_in(cp.stdout) == ["fleet-build", "reid-build"]
+    assert cp.stdout.endswith(" ") and not cp.stdout.endswith("\n")
+
+
+def test_build_only_bare_prints_and_runs_nothing(run_compose, build_ws):
+    """What the shell wrappers fall back to for `command airlab compose --build-only`."""
+    cp = run_compose("--build-only")
+    assert cp.returncode == 0
+    assert _profiles_in(cp.stdout) == ["fleet-build", "reid-build"]
+    assert cp.docker_argv == []
+
+
+def test_build_only_dry_run(run_compose, build_ws):
+    cp = run_compose("--dry-run", "--build-only", "build")
+    assert cp.returncode == 0
+    assert _profiles_in(cp.stderr) == ["fleet-build", "reid-build"]
+    assert cp.docker_argv == []
+
+
+def test_build_only_run_mode(run_compose, build_ws):
+    cp = run_compose("--build-only", "up", "-d")
+    assert cp.returncode == 0, cp.stderr
+    argv = cp.docker_argv[0]
+    assert _profiles_in(argv) == ["fleet-build", "reid-build"]
+    assert argv.endswith(" up -d")
+
+
+def test_build_only_with_no_build_profiles_errors(run_compose, ws):
+    for args in (["--emit", "--build-only"], ["--build-only", "up", "-d"]):
+        cp = run_compose(*args)
+        assert cp.returncode != 0
+        assert "-build" in cp.stderr
+        assert cp.docker_argv == []
+
+
+@pytest.mark.parametrize("args", [
+    ["--profiles", "a,b-build"], ["--profiles=a,b-build"], ["--profiles", "a b-build"]])
+def test_profiles_overrides_the_env_list(run_compose, build_ws, args):
+    cp = run_compose("--emit", *args)
+    assert cp.returncode == 0, cp.stderr
+    assert _profiles_in(cp.stdout) == ["a", "b-build"]
+
+
+def test_profiles_run_mode(run_compose, build_ws):
+    argv = run_compose("--profiles", "db", "up", "-d").docker_argv[0]
+    assert _profiles_in(argv) == ["db"] and argv.endswith(" up -d")
+
+
+def test_profiles_works_when_env_has_none(run_compose, ws):
+    (ws / "airlab.env").write_text('AIRLAB_COMPOSE_FILE="docker-compose-basestation.yaml"\n')
+    cp = run_compose("--emit", "--profiles", "fleet")
+    assert cp.returncode == 0, cp.stderr
+    assert _profiles_in(cp.stdout) == ["fleet"]
+
+
+def test_build_only_filters_the_profiles_override(run_compose, build_ws):
+    """Precedence: --profiles replaces the list, then --build-only filters it."""
+    cp = run_compose("--emit", "--profiles", "x,y-build", "--build-only")
+    assert _profiles_in(cp.stdout) == ["y-build"]
+
+
+@pytest.mark.parametrize("args", [["--profiles"], ["--profiles", ""], ["--profiles", " , "]])
+def test_empty_profiles_override_errors(run_compose, build_ws, args):
+    cp = run_compose("--emit", *args)
+    assert cp.returncode != 0
+    assert "--profiles" in cp.stderr
+
+
+def test_compose_args_are_not_taken_as_airlab_options(run_compose, build_ws):
+    """Only LEADING options are airlab's; later ones belong to Compose verbatim."""
+    argv = run_compose("build", "--build-only").docker_argv[0]
+    assert argv.endswith(" build --build-only")
+    assert _profiles_in(argv) == ["db", "fleet-build", "fleet", "reid-build"]
+
+
+def test_help_documents_profile_selection(run_compose):
+    out = run_compose("--help").stdout
+    assert "--build-only" in out and "--profiles" in out
+
+
+# --- shell wrappers: `airlab compose --build-only` alone still prefills ----- #
+
+WRAPPERS = {
+    "bash": REPO_ROOT / "etc" / "bash_completion.d" / "airlab",
+    "zsh": REPO_ROOT / "etc" / "airlab" / "airlab.zsh",
+}
+
+
+@pytest.fixture
+def run_wrapper(tmp_path, build_ws):
+    """Source a shell wrapper NON-interactively (it then prints the prefill line)
+    with a stub `airlab` on PATH that dispatches to the in-repo command scripts."""
+    bindir = tmp_path / "wbin"
+    bindir.mkdir()
+    (bindir / "airlab").write_text(f'#!/bin/bash\nc=$1; shift; exec bash "{CMDS}/$c" "$@"\n')
+    (bindir / "airlab").chmod(0o755)
+    (bindir / "docker").write_text(DOCKER_STUB)
+    (bindir / "docker").chmod(0o755)
+    log = tmp_path / "wdocker.log"
+
+    def _run(shell, *args):
+        if shutil.which(shell) is None:
+            pytest.skip(f"{shell} not installed")
+        script = f'source "{WRAPPERS[shell]}"; airlab compose "$@"'
+        cmd = [shell, "-c", script, "_", *args] if shell == "bash" else \
+              [shell, "-f", "-c", script, "_", *args]
+        cp = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env={
+            **os.environ, "PATH": f"{bindir}:{os.environ['PATH']}",
+            "AIRLAB_PATH": str(build_ws), "DOCKER_LOG": str(log), "NO_COLOR": "1"})
+        cp.docker_argv = log.read_text().splitlines() if log.exists() else []
+        return cp
+    return _run
+
+
+@pytest.mark.parametrize("shell", ["bash", "zsh"])
+@pytest.mark.parametrize("args,expected", [
+    (["--build-only"], ["fleet-build", "reid-build"]),
+    (["--profiles", "a,b"], ["a", "b"]),
+    (["--profiles=a", "--build-only"], None),   # filtered to nothing -> error
+])
+def test_wrapper_prefills_for_selection_options_alone(run_wrapper, shell, args, expected):
+    cp = run_wrapper(shell, *args)
+    assert cp.docker_argv == [], "selection options alone must prefill, not run"
+    if expected is None:
+        assert cp.returncode != 0
+        return
+    assert cp.returncode == 0, cp.stderr
+    assert cp.stdout.startswith("docker compose -f ")
+    assert "--env-file" not in cp.stdout
+    assert _profiles_in(cp.stdout) == expected
+
+
+@pytest.mark.parametrize("shell", ["bash", "zsh"])
+def test_wrapper_runs_when_compose_args_follow(run_wrapper, shell):
+    cp = run_wrapper(shell, "--build-only", "up", "-d")
+    assert cp.returncode == 0, cp.stderr
+    assert len(cp.docker_argv) == 1
+    assert _profiles_in(cp.docker_argv[0]) == ["fleet-build", "reid-build"]
+    assert cp.docker_argv[0].endswith(" up -d")

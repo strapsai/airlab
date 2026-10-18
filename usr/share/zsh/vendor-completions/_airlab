@@ -479,11 +479,23 @@ _airlab() {
                     ;;
 
                 compose)
-                    if (( CURRENT == 2 )); then
+                    # airlab's own options (--dry-run / --build-only / --profiles) may
+                    # precede the subcommand; keep offering both until one is typed.
+                    local _i _only_opts=1
+                    for (( _i = 2; _i < CURRENT; _i++ )); do
+                        case "${words[_i]}" in
+                            --dry-run|--build-only|--profiles=*) ;;
+                            --profiles) (( _i++ )) ;;
+                            *) _only_opts=0; break ;;
+                        esac
+                    done
+                    if [[ "${words[CURRENT-1]}" == --profiles ]]; then
+                        _message 'profiles (comma-separated)'
+                    elif (( _only_opts )); then
                         local -a compose_cmds
                         compose_cmds=( up down config ps logs build restart pull stop start images top )
                         _describe 'docker compose command' compose_cmds
-                        compadd -- --dry-run --help
+                        compadd -- --dry-run --build-only --profiles --help
                     fi
                     ;;
 
