@@ -1,111 +1,197 @@
-"""T1: `airlab sync`'s rsync filter rules.
+"""T1: what `airlab sync` copies to a machine.
 
-The launch tree's per-block arch env files (Axis B: `<block>/x86.env`,
-`<block>/jetpack.env`) are TRACKED and REQUIRED — `launch/` cannot render a single
-compose file without them. A blanket `--exclude='*.env'` (added for the per-machine
-root `airlab.env`) also swallowed those, so `airlab sync` delivered a launch tree with
-zero .env files and every `docker compose` on the robot died with
-`stat launch/<block>/x86.env: no such file or directory`.
+`robot-sync` builds its rsync filters from the built-in floor, the `--exclude=` flags and
+`$AIRLAB_PATH/.airlabignore`, in that order (rsync takes the first matching rule). These tests
+run the real `robot-sync` against stub `ssh`/`rsync` (the stub records rsync's arguments
+instead of transferring) and replay the recorded filters with a real `rsync --dry-run`, so
+they pin what reaches a machine, not the text of the rules.
 
-These tests read the filter list out of `robot-sync` itself and run a real
-`rsync --dry-run` against a fixture tree, so they pin behaviour rather than text.
+History: a blanket `--exclude='*.env'` that re-admitted only x86.env and jetpack.env dropped
+the Spark's launch/<block>/spark_gb10.env files (2026-10-15).
 """
-import re
+import os
 import shutil
 import subprocess
+import sys
 
 import pytest
 
-from airlab_testlib import CMDS
+from airlab_testlib import CMDS, REPO_ROOT, Result
 
 pytestmark = pytest.mark.unit
 
-# Files that MUST reach a robot: tracked, required, shared.
+HELPER = CMDS / "_lib" / "airlabignore.py"
+TEMPLATE = REPO_ROOT / "etc" / "airlab" / ".airlabignore"
+
+# Must reach a machine: tracked, shared, and compose cannot render without them.
 MUST_SYNC = [
     "launch/basestation-drivers/x86.env",
     "launch/phys-drivers/jetpack.env",
-    "launch/vlm/x86.env",
-    "launch/vlm/jetpack.env",
+    "launch/phys/spark_gb10.env",
+    "launch/newblock/future_arch.env",
+    "launch/phys/docker-compose.yaml",
 ]
-# Files that must NEVER reach a robot: per-machine, secret, or build noise.
+# Must stay local: per-machine, secret, or build output.
 MUST_NOT_SYNC = [
-    "airlab.env",                                        # per-machine root env
-    "storage_tools_ws/storage_tools_server/config.prod.env",   # deployment secrets
+    "airlab.env",
+    "storage_tools_ws/storage_tools_server/config.prod.env",
     "storage_tools_ws/storage_tools_device/config.env",
+    "ras_ws/src/triage_database/database.env",
+    "perception_ws/src/HumanFlow/docker/.env",
+    "config/dev_env/g-force-2_20261012.env",
+    "scripts/system-init-scripts/airlab.env",
+    "build/colcon_prefix.sh.env",
+    "physiology_ws/build/rrate/setup.py",
 ]
 
 
-def rsync_filters():
-    """The --include/--exclude tokens as robot-sync actually declares them, in order."""
-    body = (CMDS / "robot-sync").read_text()
-    block = body[body.index("RSYNC_OPTS=("):]
-    block = block[:block.index("\n    )")]
-    toks = re.findall(r"--(?:include|exclude)='[^']*'", block)
-    assert toks, "could not find any filter rules in robot-sync"
-    return [t.replace("'", "", 2) for t in toks]
+def template():
+    assert TEMPLATE.is_file(), f"{TEMPLATE} (the default .airlabignore) is missing"
+    return TEMPLATE.read_text()
 
 
-@pytest.fixture
-def tree(tmp_path):
-    src = tmp_path / "airlab_ws"
-    for rel in MUST_SYNC + MUST_NOT_SYNC + ["build/colcon_prefix.sh.env",
-                                            "launch/phys/docker-compose.yaml"]:
-        p = src / rel
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text("X=1\n")
-    return src
+def helper_lines(*args):
+    cp = subprocess.run([sys.executable, str(HELPER), *args], capture_output=True, text=True)
+    assert cp.returncode == 0, cp.stderr
+    return cp.stdout.splitlines()
 
 
-def transferred(tree, dest, extra_root=""):
+def transferred(src, rules, tmp_path):
     if shutil.which("rsync") is None:
         pytest.skip("rsync not available")
-    root = tree / extra_root if extra_root else tree
-    cp = subprocess.run(["rsync", "-a", "--dry-run", "--out-format=%n",
-                         *rsync_filters(), f"{root}/", str(dest)],
+    cp = subprocess.run(["rsync", "-a", "--dry-run", "--out-format=%n", *rules,
+                         src.rstrip("/") + "/", str(tmp_path / "dst")],
                         capture_output=True, text=True, timeout=60)
     assert cp.returncode == 0, cp.stderr
     return {line.rstrip("/") for line in cp.stdout.splitlines() if line.strip()}
 
 
-# --- the bug ---------------------------------------------------------------- #
+@pytest.fixture
+def sync(airlab_ws, tmp_path):
+    """sync(*args, ignore=TEXT|None, tool=CMDS) -> (result, filters|None, src|None) for
+    `airlab sync robotA --dry-run *args`, run from the command folder `tool`. The workspace
+    holds MUST_SYNC + MUST_NOT_SYNC; `ignore` becomes its .airlabignore (None: no file).
+    filters is None if rsync never ran."""
+    for rel in MUST_SYNC + MUST_NOT_SYNC:
+        p = airlab_ws / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("X=1\n")
+    bindir = tmp_path / "fakebin"
+    bindir.mkdir()
+    argv_log = tmp_path / "rsync.argv"
+    (bindir / "ssh").write_text("#!/bin/sh\nexit 0\n")
+    (bindir / "rsync").write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "{argv_log}"\n')
+    for stub in bindir.iterdir():
+        stub.chmod(0o755)
+
+    def _sync(*args, ignore=None, tool=CMDS):
+        f = airlab_ws / ".airlabignore"
+        if ignore is None:
+            f.unlink(missing_ok=True)
+        else:
+            f.write_text(ignore)
+        argv_log.unlink(missing_ok=True)
+        env = dict(os.environ, AIRLAB_PATH=str(airlab_ws), NO_COLOR="1",
+                   PATH=f"{bindir}{os.pathsep}{os.environ['PATH']}")
+        res = Result(subprocess.run(["bash", str(tool / "robot-sync"), "robotA", "--dry-run", *args],
+                                    capture_output=True, text=True, env=env, timeout=60))
+        if not argv_log.exists():
+            return res, None, None
+        argv = argv_log.read_text().splitlines()
+        return res, [a for a in argv if a.startswith(("--include=", "--exclude="))], argv[-2]
+    return _sync
+
+
+# --- the default policy ------------------------------------------------------ #
 
 @pytest.mark.parametrize("rel", MUST_SYNC)
-def test_launch_arch_env_files_are_synced(tree, tmp_path, rel):
-    assert rel in transferred(tree, tmp_path / "dst"), \
-        f"{rel} must reach the robot — launch/ cannot render compose without it"
+def test_shared_files_reach_the_machine(sync, tmp_path, rel):
+    res, rules, src = sync(ignore=template())
+    assert res.rc == 0, res.out
+    assert rel in transferred(src, rules, tmp_path)
 
 
 @pytest.mark.parametrize("rel", MUST_NOT_SYNC)
-def test_per_machine_and_secret_env_files_are_not_synced(tree, tmp_path, rel):
-    assert rel not in transferred(tree, tmp_path / "dst"), \
-        f"{rel} is per-machine or secret and must stay local"
+def test_per_machine_secret_and_build_files_stay_local(sync, tmp_path, rel):
+    res, rules, src = sync(ignore=template())
+    assert res.rc == 0, res.out
+    assert rel not in transferred(src, rules, tmp_path)
 
 
-def test_arch_envs_are_synced_when_the_root_moves(tree, tmp_path):
-    """`airlab sync --path=launch` moves the transfer root, so a 'launch/**' pattern
-    would silently stop matching. The rules are anchored at any depth for this reason."""
-    got = transferred(tree, tmp_path / "dst", extra_root="launch")
-    assert "basestation-drivers/x86.env" in got
-    assert "phys-drivers/jetpack.env" in got
+def test_arch_envs_reach_the_machine_under_path_launch(sync, tmp_path):
+    res, rules, src = sync("--path=launch", ignore=template())
+    assert res.rc == 0, res.out
+    got = transferred(src, rules, tmp_path)
+    assert {"phys/spark_gb10.env", "basestation-drivers/x86.env", "newblock/future_arch.env"} <= got
 
 
-# --- the ordering the fix depends on ---------------------------------------- #
+# --- precedence -------------------------------------------------------------- #
 
-def test_includes_precede_the_env_exclude(tree):
-    """rsync takes the FIRST matching rule, so the includes are only effective above
-    `--exclude=*.env`. Reordering them would reintroduce the bug silently."""
-    rules = rsync_filters()
-    env_exclude = next(i for i, r in enumerate(rules) if r == "--exclude=*.env")
-    for pattern in ("--include=**/x86.env", "--include=**/jetpack.env"):
-        assert pattern in rules, f"{pattern} missing from robot-sync"
-        assert rules.index(pattern) < env_exclude, f"{pattern} must come before *.env"
+def test_the_file_cannot_override_the_floor(sync, tmp_path):
+    res, rules, src = sync(ignore="!airlab.env\n!/airlab.env\n!build/\n!config*.env\n")
+    got = transferred(src, rules, tmp_path)
+    assert {"airlab.env", "storage_tools_ws/storage_tools_server/config.prod.env",
+            "build/colcon_prefix.sh.env"}.isdisjoint(got)
 
 
-def test_the_blanket_env_exclude_is_still_there(tree):
-    """Narrowing it away entirely would start shipping storage-tools credentials."""
-    assert "--exclude=*.env" in rsync_filters()
+def test_an_exclude_flag_beats_the_files_reinclude(sync, tmp_path):
+    res, rules, src = sync("--exclude=spark_gb10.env", ignore=template())
+    got = transferred(src, rules, tmp_path)
+    assert "launch/phys/spark_gb10.env" not in got and "launch/basestation-drivers/x86.env" in got
 
 
-def test_build_artifacts_stay_excluded(tree, tmp_path):
-    got = transferred(tree, tmp_path / "dst")
-    assert not any(g.startswith("build/") for g in got)
+def test_filters_are_floor_then_flags_then_file(sync):
+    res, rules, _ = sync("--exclude=from-flag", ignore="from-file\n")
+    assert rules == helper_lines("floor", "--path=") + ["--exclude=from-flag", "--exclude=from-file"]
+
+
+# --- missing, empty and broken ----------------------------------------------- #
+
+def test_without_a_workspace_file_the_tools_default_applies(sync, tmp_path):
+    """A workspace without .airlabignore (any checkout from before airlab_ws had the file) gets
+    the tool's default, not the floor alone: floor-only would ship the machines' other .env
+    files, overwrite their edits and, with --delete, remove robot-only ones."""
+    res, rules, src = sync(ignore=None)
+    assert res.rc == 0, res.out
+    assert "No .airlabignore" in res.out and "default" in res.out
+    got = transferred(src, rules, tmp_path)
+    assert set(MUST_NOT_SYNC).isdisjoint(got)
+    assert "launch/phys/spark_gb10.env" in got
+
+
+def test_without_any_file_the_floor_still_applies(sync, tmp_path):
+    """A broken install (no etc/airlab/.airlabignore beside the tool) still keeps the floor."""
+    tool = tmp_path / "bare" / "usr" / "local" / "bin" / "cmds"
+    shutil.copytree(CMDS, tool)
+    res, rules, src = sync(ignore=None, tool=tool)
+    assert res.rc == 0, res.out
+    assert "only the built-in floor" in res.out
+    got = transferred(src, rules, tmp_path)
+    assert {"airlab.env", "storage_tools_ws/storage_tools_device/config.env",
+            "build/colcon_prefix.sh.env"}.isdisjoint(got)
+
+
+def test_a_bang_line_cannot_clear_the_floor(sync, tmp_path):
+    """rsync reads a filter of exactly '!' as "clear all rules"; `\\!` or `!!` must not get there."""
+    res, rules, src = sync(ignore="\\!\n!!\n*.log\n")
+    assert res.rc == 0, res.out
+    got = transferred(src, rules, tmp_path)
+    assert {"airlab.env", "storage_tools_ws/storage_tools_server/config.prod.env",
+            "build/colcon_prefix.sh.env"}.isdisjoint(got)
+
+
+def test_an_empty_file_leaves_only_the_floor(sync):
+    res, rules, _ = sync(ignore="# nothing here\n")
+    assert res.rc == 0, res.out
+    assert rules == helper_lines("floor", "--path=")
+    assert "(0 rules)" in res.out
+
+
+def test_the_rules_source_is_logged(sync):
+    res, _, _ = sync(ignore=template())
+    assert "Ignore rules:" in res.out and ".airlabignore" in res.out
+
+
+def test_a_converter_failure_stops_the_sync(sync):
+    res, rules, _ = sync("--path=../outside", ignore=template())
+    assert res.rc != 0 and rules is None

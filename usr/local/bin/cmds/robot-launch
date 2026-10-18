@@ -189,15 +189,15 @@ launch_remote(){
         LAUNCH_NAME="$(basename "${yaml_file%.*}")"
     else
         # Parse the workspace path and handle errors
-        ws_path=$(parse_yaml "$ROBOT_INFO_PATH" "$SYSTEM_NAME.ws_path") || {
-            log_error "Failed to get workspace path from robot_info.yaml"
+        remote_ws=$(parse_yaml "$ROBOT_INFO_PATH" "$SYSTEM_NAME.AIRLAB_PATH") || {
+            log_error "Failed to read the workspace path (AIRLAB_PATH) from robot_info.yaml"
             exit 1
         }    
-        if [[ -z "$ws_path" ]]; then
-            log_error "Workspace path is empty in robot_info.yaml"
+        if [[ "$remote_ws" != /* || "$remote_ws" == *'$'* ]]; then
+            log_error "AIRLAB_PATH for '$SYSTEM_NAME' in robot_info.yaml must be an absolute path (got '$remote_ws')"
             exit 1
         fi
-        yaml_file="$ws_path/$yaml_file"
+        yaml_file="$remote_ws/$yaml_file"
         LAUNCH_NAME="$(basename "${yaml_file%.*}")"
     fi
 

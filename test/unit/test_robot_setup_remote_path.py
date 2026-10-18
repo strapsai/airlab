@@ -29,6 +29,7 @@ _SSH_STUB = f"""#!/bin/bash
 for a in "$@"; do
   case "$a" in
     'echo $HOME') echo {_ROBOT_HOME}; exit 0 ;;
+    'uname -s')   echo Linux; exit 0 ;;
     '[ -d '*)     exit 1 ;;
   esac
 done

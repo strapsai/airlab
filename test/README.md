@@ -33,7 +33,7 @@ cd test && python -m pytest unit        # T1
 
 ## Fixtures (`fixtures/airlab_ws/`)
 A dummy workspace with the tricky cases baked in: a hostname-only (no-`ip`) address
-and a port-bearing address in `robots.yaml`; `robot_info.yaml` with `ws_path`;
+and a port-bearing address in `robots.yaml`; `robot_info.yaml` with `AIRLAB_PATH` (the workspace root);
 a `version_control` manifest; a compliant `alias/`. Copy-per-test keeps mutations
 isolated.
 

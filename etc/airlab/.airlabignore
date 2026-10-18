@@ -1,0 +1,10 @@
+# .airlabignore: what `airlab sync` must NOT copy to a machine (.gitignore syntax).
+# The tool always excludes these too, whatever this file says:
+#   .git  build/  devel/  install/  log/  *.pyc  __pycache__
+#   /airlab.env   storage_tools_ws/**/config*.env
+
+# Env files are per-machine or secret: they stay local ...
+*.env
+# ... except the launch tree's per-block arch env files (x86.env, jetpack.env,
+# spark_gb10.env, any future arch): tracked, shared, and compose needs them.
+!/launch/*/*.env

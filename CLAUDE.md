@@ -32,6 +32,8 @@ usr/local/bin/
       robot_info.py               # Sole owner of robot_info.yaml's format (read/write/env)
       robot_info.sh               # bash wrappers: update_robot_info / read_env_from_yaml
       env_file.sh                 # Safe KEY=VALUE editing of airlab.env
+      airlabignore.py             # .airlabignore (gitignore syntax) + built-in floor -> rsync filters for robot-sync
+      remote_os.sh                # Target OS detection (uname -s): Linux -> airlab, macOS -> airlab-mac
     version-control/
       vcs                         # VCS sub-command dispatcher
       init                        # Clone repos from YAML (--here, --check, --from-scratch)
@@ -44,6 +46,7 @@ usr/share/zsh/vendor-completions/
 usr/share/airlab/alias-templates/
   alias.sh, alias.py              # Templates for "airlab a --new" (with @desc/@author/--help)
 etc/airlab/                       # Default config templates (copied to workspace on setup)
+  .airlabignore                   # Default sync ignore rules (gitignore syntax; copied on setup)
   airlab.zsh                      # Zsh shell function wrapper (sourced from ~/.zshrc)
   robot/robots.yaml               # Robot registry: systems + network addresses (SSH resolution)
   robot/robot_info.yaml           # Robot metadata (YAML)
@@ -62,8 +65,9 @@ etc/bash_completion.d/
 - **Interactive prompts**: `_airlab_sudo_pw` writes its prompt to `/dev/tty`, not stderr, because callers capture it with `$(...)`. Any prompt a caller might redirect away has to do the same, or it becomes a silent hang on an invisible question.
 - **YAML parsing**: Done via inline `python3 -c "import yaml; ..."` calls. PyYAML is a dependency.
 - **`airlab env`**: the one place that moves environment variables between a machine's `airlab.env` and the operator-side `robot_info.yaml` record (`show` / `compare` / `sync-from` / `sync-to` / `set`). It reads `airlab.env` as **text and never sources it**, so shell literals like `${SUDO_USER:-$USER}` round-trip instead of freezing one host's expansion into the shared record. Replaced `airlab set_env`, whose dispatcher arm now just points at `airlab env set`.
-- **`robot_info.yaml`**: system names sit at the **top level** — there is no `robots:` root key, and readers look fields up as `<system>.<field>`. `ws_path`, `robot_ssh` and `last_updated` are bookkeeping, not environment variables, and are excluded when regenerating a machine's `airlab.env`. All access goes through `_lib/robot_info.sh`; do not re-add a second writer.
+- **`robot_info.yaml`**: system names sit at the **top level** — there is no `robots:` root key, and readers look fields up as `<system>.<field>`. A machine's workspace root is its recorded `AIRLAB_PATH`; its address comes from `robots.yaml`. `last_updated` is bookkeeping, not an environment variable. `ws_path` and `robot_ssh` are **retired** (they duplicated those two): every write drops them, `robot_info.py migrate` strips a file, and they are never exported to or imported from `airlab.env`. All access goes through `_lib/robot_info.sh`; do not re-add a second writer.
 - **Never edit config files with `sed -i "s|...|$value|"`**: the value lands in the replacement text, so `|` aborts the command and `&` or a backslash is silently rewritten. Use `env_file_set` for `airlab.env` and `update_robot_info` for `robot_info.yaml` — both compare by prefix/key and pass the value as data.
+- **What `airlab sync` skips**: never add filters to `robot-sync`'s `RSYNC_OPTS`. The non-negotiable floor lives in `_lib/airlabignore.py` (`FLOOR`); everything else belongs in the workspace's `.airlabignore`. Order is floor → `--exclude` flags → file, because rsync takes the first match.
 - **AIRLAB_REPO_FILE**: A marker file placed in repo directories by `vcs init`. Contains the YAML filename used for initialization. Used by `--here`, `--check`, `--from-scratch`, `vcs status`, and `vcs update`.
 - **Config path**: `$AIRLAB_PATH` env var points to the workspace root (set in `~/.bashrc` or `~/.zshrc` during `sudo airlab setup local`).
 - **Setup privileges**: `airlab setup local` provisions the machine system-wide and **must run as root** (`sudo airlab setup local`) — the root check lives in the `local)` arm of `robot-setup`'s `main()`. `airlab setup <robot>` runs as the **invoking user** (its local git/rsync use that user's repo + SSH keys) and elevates **only on the robot** via `_lib/remote_sudo.sh`, so it needs no local root. The robot-side sudo password comes from `--password` → `$AIRLAB_SUDO_PASSWORD` → prompt.
