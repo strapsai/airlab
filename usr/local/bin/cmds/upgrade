@@ -34,8 +34,19 @@ installed package, and reinstall by running install.sh interactively.
 Options:
   --branch <branch>   Branch to install from (default: main).
   -y, --yes           Skip the confirmation prompt.
-  -- <flags>...       Pass the remaining args through to install.sh (e.g. --offline).
+  -- <flags>...       Pass the remaining args through to install.sh, e.g.
+                        airlab upgrade -- --keep-venv   (keep ~/VENVs/airlab, no prompt)
+                        airlab upgrade -- --offline     (no network: skip apt + pip)
+                      See 'install.sh --help' for the full list.
   -h, --help          Show this help.
+
+Before removing anything, the downloaded install.sh is checked (present, valid
+bash, and 'install.sh --check <flags>' passes), so a bad flag aborts with the
+current install intact.
+
+Exit status: 0 on success, 1 if aborted (prompt declined or no answer) or on
+any failure. Without --yes the confirmation is read from stdin, so a
+non-interactive run must pass --yes.
 EOF
 }
 
@@ -68,12 +79,20 @@ echo "  current : v${current_version}"
 echo "  action  : remove the installed package, then run install.sh interactively"
 
 if [ "$assume_yes" != true ]; then
-    read -r -p "Proceed? [y/N]: " confirm
-    [[ "$confirm" =~ ^[Yy]$ ]] || { log_warn "Aborted."; exit 0; }
+    # Declining is not success: exit non-zero so a script never reads an abort as
+    # "upgraded". EOF (stdin not a terminal, nothing piped) is an abort too.
+    if ! read -r -p "Proceed? [y/N]: " confirm; then
+        echo ""
+        log_error "No answer (stdin is not a terminal?). Aborted — pass --yes to upgrade non-interactively."
+        exit 1
+    fi
+    [[ "$confirm" =~ ^[Yy]$ ]] || { log_warn "Aborted."; exit 1; }
 fi
 
 # Download fresh source to /tmp — this does NOT touch the installed package.
-work="/tmp/airlab-upgrade"
+# (AIRLAB_UPGRADE_TMPDIR relocates the parent dir, for tests; the directory that is
+# wiped is always its fixed "airlab-upgrade" child, never the variable itself.)
+work="${AIRLAB_UPGRADE_TMPDIR:-/tmp}/airlab-upgrade"
 rm -rf "$work"; mkdir -p "$work"
 log_info "Downloading ${source_url} ..."
 curl -fL -o "${work}/airlab.zip" "$source_url" || { log_error "Download failed — check --branch (${branch})."; exit 1; }
@@ -85,6 +104,26 @@ src="$(find "$work" -mindepth 1 -maxdepth 1 -type d -print -quit)"
 [ -n "$src" ] && [ -f "${src}/install.sh" ] || { log_error "install.sh not found in the downloaded source under ${work} — check --branch (${branch})."; exit 1; }
 chmod -R a+x "$src"
 
+# Validate the downloaded installer BEFORE the runner removes the installed
+# package: once `dpkg -r airlab` has run, any install.sh failure leaves the tool
+# uninstalled, so catch what we can while it is still free to abort.
+bash -n "${src}/install.sh" || { log_error "Downloaded install.sh has a syntax error — nothing was removed."; exit 1; }
+if grep -q -- '--check)' "${src}/install.sh"; then
+    log_info "Checking install.sh ${install_args[*]:-} ..."
+    ( cd "$src" && bash "${src}/install.sh" --check "${install_args[@]}" ) || {
+        log_error "install.sh rejected these arguments or preconditions — nothing was removed; airlab is still installed."
+        exit 1
+    }
+else
+    log_warn "This install.sh (${branch}) has no --check; its arguments can't be validated before the package is removed."
+fi
+
+# Quote the passthrough args for the generated runner (a flag value with spaces or
+# shell metacharacters must reach install.sh as one literal word).
+install_cmd="bash $(printf '%q' "${src}/install.sh")"
+for a in "${install_args[@]}"; do install_cmd+=" $(printf '%q' "$a")"; done
+src_q="$(printf '%q' "$src")"
+
 # Write the remove+reinstall runner INTO /tmp and hand off with exec. Once exec'd,
 # nothing we run lives inside the airlab package, so `dpkg -r airlab` is safe; the
 # controlling terminal is preserved, so install.sh prompts interactively.
@@ -95,14 +134,28 @@ set -uo pipefail
 echo "[INFO] Removing the installed airlab package (sudo) ..."
 sudo dpkg -r airlab || echo "[WARN] 'dpkg -r airlab' failed (proceeding to reinstall anyway)."
 echo "[INFO] Reinstalling via install.sh (interactive) ..."
-cd "${src}"
-bash "${src}/install.sh" ${install_args[*]}
+cd ${src_q} || { echo "[ERROR] cannot cd to ${src_q}" >&2; exit 1; }
+${install_cmd}
 status=\$?
 echo ""
 if [ "\$status" -eq 0 ]; then
     echo "[INFO] Done. Now: \$(airlab --version 2>/dev/null || echo 'airlab --version unavailable')"
 else
-    echo "[ERROR] install.sh exited \$status. airlab may be left uninstalled — re-run: bash ${src}/install.sh" >&2
+    {
+        echo "[ERROR] ================================================================"
+        echo "[ERROR] install.sh FAILED (exit \$status)."
+        if dpkg-query -W -f='\${Status}' airlab 2>/dev/null | grep -q 'install ok installed'; then
+            echo "[ERROR] An airlab package is still installed, but the upgrade did not complete."
+        else
+            echo "[ERROR] The airlab tool is currently UNINSTALLED."
+        fi
+        echo "[ERROR] Reinstall it from the downloaded source with:"
+        echo "[ERROR]"
+        echo "[ERROR]     cd ${src_q} && ${install_cmd}"
+        echo "[ERROR]"
+        echo "[ERROR] (${work} is in /tmp — run that before a reboot clears it.)"
+        echo "[ERROR] ================================================================"
+    } >&2
 fi
 exit \$status
 RUNNER

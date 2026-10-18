@@ -1140,6 +1140,8 @@ airlab upgrade [--branch <branch>] [--yes] [-- <install.sh flags>...]
 
 It downloads the source (the repo recorded in `/usr/share/airlab/install_source`, default `strapsai/airlab`), removes the installed package, and runs the freshly downloaded `install.sh` **interactively** (you answer its venv / `sudo` prompts). To stay safe while removing its own package, it downloads to `/tmp` and hands off to a runner there with `exec` *before* running `dpkg -r airlab`.
 
+Flags after `--` go to `install.sh`, e.g. `airlab upgrade --yes -- --keep-venv` keeps `~/VENVs/airlab` without prompting (deps are still upgraded into it). The downloaded `install.sh` is validated with `install.sh --check <flags>` before the package is removed. Declining the prompt — or running without a terminal and without `--yes` — exits 1.
+
 See [`usr/local/bin/docs/upgrade.md`](usr/local/bin/docs/upgrade.md) for the full reference.
 
 ---
