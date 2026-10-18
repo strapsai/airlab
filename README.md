@@ -78,7 +78,7 @@
 
     **Virtual environment options:**
 
-    If the `~/VENVs/airlab` virtual environment already exists, the script will prompt you to remove and re-create it or keep the existing one. You can also control this behavior with command-line flags:
+    If the `~/VENVs/airlab` virtual environment already exists, the script will prompt you to remove and re-create it or keep the existing one (with no terminal to answer — stdin closed — it keeps it). You can also control this behavior with command-line flags (at most one venv mode; `./install.sh --help` lists them all, and `--check` validates the arguments without changing anything):
 
     ```bash
     # Always remove and re-create the venv (no prompt)
@@ -86,6 +86,9 @@
 
     # Error out if the venv already exists (no prompt)
     ./install.sh --no-override-venv
+
+    # Keep the existing venv (no prompt) but still pip install/upgrade the deps into it
+    ./install.sh --keep-venv
 
     # Skip venv creation entirely — use whatever venv is currently active
     ./install.sh --skip-venv
