@@ -78,7 +78,7 @@
 
     **Virtual environment options:**
 
-    If the `~/VENVs/airlab` virtual environment already exists, the script will prompt you to remove and re-create it or keep the existing one. You can also control this behavior with command-line flags:
+    If the `~/VENVs/airlab` virtual environment already exists, the script will prompt you to remove and re-create it or keep the existing one (with no terminal to answer — stdin closed — it keeps it). You can also control this behavior with command-line flags (at most one venv mode; `./install.sh --help` lists them all, and `--check` validates the arguments without changing anything):
 
     ```bash
     # Always remove and re-create the venv (no prompt)
@@ -86,6 +86,9 @@
 
     # Error out if the venv already exists (no prompt)
     ./install.sh --no-override-venv
+
+    # Keep the existing venv (no prompt) but still pip install/upgrade the deps into it
+    ./install.sh --keep-venv
 
     # Skip venv creation entirely — use whatever venv is currently active
     ./install.sh --skip-venv
@@ -1113,6 +1116,8 @@ airlab compose                  # prefill the command; edit it, then run
 airlab compose up -d            # run it — brings THIS machine's stack up
 airlab compose down             # take it down
 airlab compose --dry-run down   # print exactly what would run; run nothing
+airlab compose --build-only build          # only the profiles ending in -build
+airlab compose --profiles fleet,db up -d   # override the profile list
 ```
 
 Because the elected file and profiles live in `airlab.env`, **the same command brings the right stack up on any configured machine** — basestation, robot or GPU box — without knowing which compose file it uses. Arguments are passed to Compose verbatim (`up`, `down`, `config`, `ps`, `logs`, `build`, …) and its exit code is propagated.
@@ -1134,6 +1139,8 @@ airlab upgrade [--branch <branch>] [--yes] [-- <install.sh flags>...]
 ```
 
 It downloads the source (the repo recorded in `/usr/share/airlab/install_source`, default `strapsai/airlab`), removes the installed package, and runs the freshly downloaded `install.sh` **interactively** (you answer its venv / `sudo` prompts). To stay safe while removing its own package, it downloads to `/tmp` and hands off to a runner there with `exec` *before* running `dpkg -r airlab`.
+
+Flags after `--` go to `install.sh`, e.g. `airlab upgrade --yes -- --keep-venv` keeps `~/VENVs/airlab` without prompting (deps are still upgraded into it). The downloaded `install.sh` is validated with `install.sh --check <flags>` before the package is removed. Declining the prompt — or running without a terminal and without `--yes` — exits 1.
 
 See [`usr/local/bin/docs/upgrade.md`](usr/local/bin/docs/upgrade.md) for the full reference.
 

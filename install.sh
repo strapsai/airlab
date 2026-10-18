@@ -2,23 +2,65 @@
 
 set -e  # Exit immediately if a command exits with a non-zero status
 
+show_usage() {
+    cat <<EOF
+Usage: $0 [VENV MODE] [--skip-apt] [--skip-pip] [--check] [-h|--help]
+
+Install the airlab tool: apt prerequisites, a Python venv at ~/VENVs/airlab with
+the Python dependencies, then build and install the airlab .deb.
+
+Venv mode (pick at most one; default: prompt if ~/VENVs/airlab already exists):
+  --keep-venv         Reuse ~/VENVs/airlab if it exists (no prompt), and still
+                      pip install/upgrade the dependencies into it. Creates it if
+                      it does not exist.
+  --override-venv     Remove and re-create ~/VENVs/airlab (no prompt).
+  --no-override-venv  Error out if ~/VENVs/airlab already exists.
+  --skip-venv         Use the currently active venv (\$VIRTUAL_ENV).
+  --no-venv           No venv at all; Python deps go to the user site.
+  --offline           No network: skip apt + pip and reuse the existing venv as-is.
+
+Other options:
+  --skip-apt          Skip apt update / apt install.
+  --skip-pip          Skip pip installs.
+  --check             Validate the arguments and venv preconditions, then exit
+                      without changing anything (used by 'airlab upgrade' before
+                      it removes the installed package).
+  -h, --help          Show this help.
+
+Without a venv-mode flag, an existing venv triggers a "Remove and re-create it?"
+prompt; with no terminal to answer it (stdin closed), the default — keep — is used.
+EOF
+}
+
 # Parse command line arguments.
-VENV_MODE=""  # "", "override", "no-override", "skip", "reuse", or "none"
+VENV_MODE=""  # "", "override", "no-override", "keep", "skip", "reuse", or "none"
+VENV_FLAG=""  # the flag that set VENV_MODE, for conflict messages
 SKIP_APT=false
 SKIP_PIP=false
 OFFLINE=false
+CHECK_ONLY=false
+# Venv modes are mutually exclusive: refuse two different ones instead of letting
+# the last one silently win (that is how an operator ends up with a deleted venv).
+set_venv_mode() {
+    if [ -n "$VENV_MODE" ] && [ "$VENV_MODE" != "$1" ]; then
+        echo "Error: $VENV_FLAG and $2 are mutually exclusive." >&2
+        exit 1
+    fi
+    VENV_MODE="$1"
+    VENV_FLAG="$2"
+}
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --override-venv)
-            VENV_MODE="override"
+            set_venv_mode override --override-venv
             shift
             ;;
         --no-override-venv)
-            VENV_MODE="no-override"
+            set_venv_mode no-override --no-override-venv
             shift
             ;;
         --skip-venv)
-            VENV_MODE="skip"
+            set_venv_mode skip --skip-venv
             shift
             ;;
         --no-venv)
@@ -33,7 +75,15 @@ while [[ $# -gt 0 ]]; do
             # Python 3.6, and its ~/.bashrc is load-bearing (it carries DRONE_ID and
             # the identity base values the ROS stack derives everything from), so an
             # injected `source .../activate` line is a real hazard there.
-            VENV_MODE="none"
+            set_venv_mode none --no-venv
+            shift
+            ;;
+        --keep-venv)
+            # Reuse an existing ~/VENVs/airlab without prompting, but still run the
+            # normal pip install/upgrade into it. Unlike --offline it does not skip
+            # apt or pip; unlike --no-override-venv it does not error when the venv
+            # exists. What answering N to the re-create prompt does, non-interactively.
+            set_venv_mode keep --keep-venv
             shift
             ;;
         --skip-apt)
@@ -51,9 +101,17 @@ while [[ $# -gt 0 ]]; do
             OFFLINE=true
             shift
             ;;
+        --check)
+            CHECK_ONLY=true
+            shift
+            ;;
+        -h|--help)
+            show_usage
+            exit 0
+            ;;
         *)
-            echo "Unknown option: $1"
-            echo "Usage: $0 [--override-venv | --no-override-venv | --skip-venv | --no-venv | --offline] [--skip-apt] [--skip-pip]"
+            echo "Unknown option: $1" >&2
+            show_usage >&2
             exit 1
             ;;
     esac
@@ -70,6 +128,42 @@ fi
 
 # Get the directory of the current script.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Preflight: fail on anything we can know is wrong BEFORE apt, pip or any venv
+# change. `airlab upgrade` runs this (--check) before it removes the installed
+# package, so a bad flag or a missing venv can't leave the tool uninstalled.
+preflight() {
+    local venv="$HOME/VENVs/airlab"
+    for f in install_dependencies_ubuntu24.sh DEBIAN etc usr; do
+        if [ ! -e "$SCRIPT_DIR/$f" ]; then
+            echo "Error: $SCRIPT_DIR/$f is missing — incomplete airlab source tree." >&2
+            exit 1
+        fi
+    done
+    case "$VENV_MODE" in
+        skip)
+            if [ -z "${VIRTUAL_ENV:-}" ]; then
+                echo "Error: --skip-venv requires an active virtual environment, but none is detected." >&2
+                exit 1
+            fi ;;
+        reuse)
+            if [ ! -d "$venv" ]; then
+                echo "Error: --offline/--reuse-venv needs an existing venv at $venv, but none was found." >&2
+                echo "Run an online setup first so the venv (and its packages) are in place." >&2
+                exit 1
+            fi ;;
+        no-override)
+            if [ -d "$venv" ]; then
+                echo "Error: Virtual environment 'airlab' already exists (--no-override-venv)." >&2
+                exit 1
+            fi ;;
+    esac
+}
+preflight
+if [ "$CHECK_ONLY" = true ]; then
+    echo "install.sh --check: arguments and preconditions OK (venv mode: ${VENV_MODE:-prompt})."
+    exit 0
+fi
 
 if [ "$SKIP_APT" = true ]; then
     echo "Skipping apt update and apt install (--skip-apt)."
@@ -124,10 +218,20 @@ else
         elif [ "$VENV_MODE" = "no-override" ]; then
             echo "Error: Virtual environment 'airlab' already exists."
             exit 1
+        elif [ "$VENV_MODE" = "keep" ]; then
+            echo "Keeping existing virtual environment $VENV_DIR/airlab (--keep-venv); dependencies will still be installed/upgraded into it."
+            VENV_ACTION="reuse"
         else
             # Interactive prompt.
             echo "Virtual environment 'airlab' already exists at $VENV_DIR/airlab."
-            read -rp "Remove and re-create it? [y/N] " answer
+            # With no terminal to answer (stdin closed / EOF), `read` fails, and under
+            # `set -e` that used to abort the whole install — after `airlab upgrade`
+            # had already removed the package. Take the default (N = keep) instead.
+            if ! read -rp "Remove and re-create it? [y/N] " answer; then
+                echo ""
+                echo "No answer (stdin closed) — taking the default: keep it. Use --override-venv to re-create it non-interactively."
+                answer=""
+            fi
             case "$answer" in
                 [yY]|[yY][eE][sS])
                     echo "Removing existing virtual environment 'airlab'..."
