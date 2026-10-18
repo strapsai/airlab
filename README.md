@@ -1113,6 +1113,8 @@ airlab compose                  # prefill the command; edit it, then run
 airlab compose up -d            # run it — brings THIS machine's stack up
 airlab compose down             # take it down
 airlab compose --dry-run down   # print exactly what would run; run nothing
+airlab compose --build-only build          # only the profiles ending in -build
+airlab compose --profiles fleet,db up -d   # override the profile list
 ```
 
 Because the elected file and profiles live in `airlab.env`, **the same command brings the right stack up on any configured machine** — basestation, robot or GPU box — without knowing which compose file it uses. Arguments are passed to Compose verbatim (`up`, `down`, `config`, `ps`, `logs`, `build`, …) and its exit code is propagated.

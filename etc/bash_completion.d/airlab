@@ -37,12 +37,23 @@ airlab() {
             command airlab compose --help
             return 0
         fi
+        # Profile-selection options alone (`airlab compose --build-only`) still mean
+        # "prefill": collect them, and only hand over to the command if Compose
+        # arguments follow them.
+        local -a _sel=()
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --build-only|--profiles=*) _sel+=("$1"); shift ;;
+                --profiles) _sel+=("$1" "${2:-}"); shift; [[ $# -gt 0 ]] && shift ;;
+                *) break ;;
+            esac
+        done
         if [[ $# -gt 0 ]]; then
-            command airlab compose "$@"
+            command airlab compose "${_sel[@]}" "$@"
             return $?
         fi
         local _cmd
-        _cmd="$(command airlab compose --emit)" || return $?
+        _cmd="$(command airlab compose --emit "${_sel[@]}")" || return $?
         [[ -n "${AIRLAB_PATH:-}" ]] && builtin cd "${AIRLAB_PATH}/launch" 2>/dev/null
         if [[ $- == *i* ]]; then
             # Inject $_cmd into the readline buffer, editable (with completion): bind the
@@ -395,8 +406,22 @@ docker-build docker-up docker-join docker-list docker-clean ros2 vcs a cd compos
             # Bare `airlab compose` prefills; with args it runs Compose, so offer the
             # subcommands. After the first one, Compose's own flags are too many and
             # too subcommand-specific to enumerate — leave them to the operator.
-            if [[ $cword -eq 2 ]]; then
-                COMPREPLY=( $(compgen -W "up down config ps logs build restart pull stop start images top --dry-run --help -h" -- "$cur") )
+            # airlab's own options (--dry-run / --build-only / --profiles) may precede
+            # the subcommand, so keep offering both until a subcommand has been typed.
+            if [[ "$prev" == "--profiles" || "$eq_opt" == "--profiles" ]]; then
+                return    # free-text profile list
+            fi
+            local _i _only_opts=true
+            for (( _i = 2; _i < cword; _i++ )); do
+                case "${words[_i]}" in
+                    --dry-run|--build-only) ;;
+                    # "--profiles=a,b" arrives split on "=" (COMP_WORDBREAKS).
+                    --profiles) (( _i++ )); [[ "${words[_i]}" == "=" ]] && (( _i++ )) ;;
+                    *) _only_opts=false; break ;;
+                esac
+            done
+            if [[ "$_only_opts" == true ]]; then
+                COMPREPLY=( $(compgen -W "up down config ps logs build restart pull stop start images top --dry-run --build-only --profiles --help -h" -- "$cur") )
             fi
             ;;
 
