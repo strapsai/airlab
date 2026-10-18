@@ -35,12 +35,23 @@ airlab() {
             command airlab compose --help
             return 0
         fi
+        # Profile-selection options alone (`airlab compose --build-only`) still mean
+        # "prefill": collect them, and only hand over to the command if Compose
+        # arguments follow them.
+        local -a _sel=()
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --build-only|--profiles=*) _sel+=("$1"); shift ;;
+                --profiles) _sel+=("$1" "${2:-}"); shift; [[ $# -gt 0 ]] && shift ;;
+                *) break ;;
+            esac
+        done
         if [[ $# -gt 0 ]]; then
-            command airlab compose "$@"
+            command airlab compose "${_sel[@]}" "$@"
             return $?
         fi
         local _cmd
-        _cmd="$(command airlab compose --emit)" || return $?
+        _cmd="$(command airlab compose --emit "${_sel[@]}")" || return $?
         [[ -n "${AIRLAB_PATH:-}" ]] && builtin cd "${AIRLAB_PATH}/launch" 2>/dev/null
         if [[ -o interactive ]]; then
             print -z "$_cmd"     # push onto the editing buffer: appears editable at the next prompt

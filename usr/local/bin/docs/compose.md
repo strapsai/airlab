@@ -16,12 +16,26 @@ airlab compose                      # prefill the command
 airlab compose up -d                # run it
 airlab compose down                 # run it
 airlab compose --dry-run up -d      # print exactly what would run; run nothing
+airlab compose --build-only         # prefill, with only the *-build profiles
+airlab compose --build-only build   # build just the *-build profiles
+airlab compose --profiles fleet,db up -d   # run with exactly these profiles
 ```
+
+airlab's own options (`--dry-run`, `--build-only`, `--profiles`) must come **before** the Compose arguments; everything from the first other argument (or after a literal `--`) is handed to Compose verbatim.
+
+## Selecting profiles
+- `--build-only` — keep only the profiles whose name ends in `-build`. Errors (and runs nothing) if none remain.
+- `--profiles <a,b,...>` (or `--profiles=<a,b,...>`) — use this list instead of `AIRLAB_COMPOSE_PROFILES`, comma- or space-separated. Works even when `AIRLAB_COMPOSE_PROFILES` is unset; an empty list is an error.
+- **Together**: `--profiles` replaces the list first, then `--build-only` filters it.
+
+Both work in every mode — prefill (`airlab compose --build-only` still prefills, it does not run anything), `--dry-run`, and run (`airlab compose --build-only up -d`).
 
 ## Configuration (in `airlab.env`)
 Set these per machine in `$AIRLAB_PATH/airlab.env`:
 - `AIRLAB_COMPOSE_FILE` — the elected top-level compose file, a filename under `$AIRLAB_PATH/launch/` (e.g. `docker-compose-basestation.yaml`).
 - `AIRLAB_COMPOSE_PROFILES` — the profiles this machine runs, space- or comma-separated (e.g. `"fleet storage-tools"`).
+
+`airlab.env` is read as **text**, never sourced; the last assignment of a key wins. A value may be single- or double-quoted, may be preceded by `export `, and may be followed by trailing whitespace or a ` # comment` — e.g. `export AIRLAB_COMPOSE_PROFILES="db fleet" # basestation` yields the profiles `db` and `fleet`. A quoted value is taken literally up to its closing quote.
 
 ## How It Works
 
@@ -60,5 +74,7 @@ airlab compose down             # take it down
 airlab compose ps               # what's running
 airlab compose logs -f reid     # follow one service
 airlab compose --dry-run down   # see the exact command first
+airlab compose --build-only build          # build only the *-build profiles
+airlab compose --profiles fleet ps         # look at one profile
 airlab compose --help
 ```
