@@ -56,12 +56,11 @@ When `compare` finds a resolved value on one side and a shell literal on the oth
 
 ## Bookkeeping fields
 
-`ws_path`, `robot_ssh` and `last_updated` sit in `robot_info.yaml` alongside the variables but are **not** environment variables — they are how the tool reaches the machine and dates the entry.
+`last_updated` sits in `robot_info.yaml` alongside the variables but is **not** an environment variable — it dates the entry. `sync-to` never writes it to a machine and `sync-from` never imports it.
 
-* `sync-to` never writes them to a machine.
-* `sync-from` never imports them. They are operator-side truth: `robot_ssh` comes from address resolution and `ws_path` from setup, so taking them back off a machine would let a stale copy overwrite the record that produced it.
+`ws_path` and `robot_ssh` are **retired**. They duplicated the record's own `AIRLAB_PATH` (the machine's workspace root) and the address `robots.yaml` resolves. Every write to `robot_info.yaml` drops them, `robot_info.py migrate <file>` strips a whole file, `set` refuses them, and neither `sync-to` nor `sync-from` carries them.
 
-If `compare` reports them **in a machine's `airlab.env`**, that machine was provisioned by a version whose env extraction trimmed entries positionally and let them through. They do nothing there. `airlab env sync-to <system> --prune` clears them.
+If `compare` reports any of these **in a machine's `airlab.env`**, that machine was provisioned by a version whose env extraction trimmed entries positionally and let them through. They do nothing there. `airlab env sync-to <system> --prune` clears them.
 
 ## `set`
 
@@ -93,4 +92,4 @@ Surrounding double quotes in what you type are stripped only when **paired**, so
 airlab env show g-uav-2 --address=vpn
 ```
 
-The machine's workspace root comes from the record's `ws_path`. A system that is in `robots.yaml` but not yet in `robot_info.yaml` — freshly registered, never provisioned — falls back to `$HOME/airlab_ws` with a warning, so `airlab env show` still works on a new machine.
+The machine's workspace root comes from the record's `AIRLAB_PATH`. A system that is in `robots.yaml` but not yet in `robot_info.yaml` — freshly registered, never provisioned — falls back to `$HOME/airlab_ws` with a warning, so `airlab env show` still works on a new machine.

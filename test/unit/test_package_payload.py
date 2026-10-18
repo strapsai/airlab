@@ -73,6 +73,8 @@ def test_the_new_commands_are_actually_in_the_payload(built_deb):
                      "usr/local/bin/cmds/env",
                      "usr/local/bin/cmds/hosts",
                      "usr/local/bin/cmds/_lib/robot_info.py",
+                     "usr/local/bin/cmds/_lib/airlabignore.py",
+                     "etc/airlab/.airlabignore",
                      "etc/bash_completion.d/airlab",
                      "usr/share/zsh/vendor-completions/_airlab"):
         assert expected in paths, f"{expected} missing from the package"

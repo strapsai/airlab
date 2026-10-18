@@ -30,13 +30,11 @@ SH = CMDS / "_lib" / "robot_info.sh"
 SAMPLE = '''  botA:
     ROS_DOMAIN_ID: "10"
     DOCKER_UP_PATH: "/ws/docker/docker-compose.yml"
-    robot_ssh: "dtc@10.0.0.10"
-    ws_path: "/ws"
+    AIRLAB_PATH: "/ws"
     last_updated: "2026-07-09 00:00:00"
   zz-last:
     ROS_DOMAIN_ID: "20"
-    robot_ssh: "dtc@10.0.0.20"
-    ws_path: "/ws"
+    AIRLAB_PATH: "/ws"
     last_updated: "2026-07-09 00:00:00"
 '''
 
@@ -46,6 +44,20 @@ def reg(tmp_path):
     """A registry file in the canonical format; returns its Path."""
     p = tmp_path / "robot_info.yaml"
     p.write_text(SAMPLE)
+    return p
+
+
+# The same two entries as written before ws_path / robot_ssh were retired.
+LEGACY = SAMPLE.replace(
+    '    AIRLAB_PATH: "/ws"\n',
+    '    AIRLAB_PATH: "/ws"\n    robot_ssh: "dtc@10.0.0.10"\n    ws_path: "/ws"\n')
+
+
+@pytest.fixture
+def legacy_reg(tmp_path):
+    """A registry still carrying the retired fields; returns its Path."""
+    p = tmp_path / "legacy_robot_info.yaml"
+    p.write_text(LEGACY)
     return p
 
 
@@ -88,29 +100,30 @@ def test_empty_file_is_seeded_correctly(tmp_path):
 
 def test_legacy_robots_root_is_reported_not_half_read(tmp_path):
     p = tmp_path / "legacy.yaml"
-    p.write_text('robots:\n  botA:\n    ws_path: "/ws"\n')
-    r = py("get", p, "botA", "ws_path")
+    p.write_text('robots:\n  botA:\n    AIRLAB_PATH: "/ws"\n')
+    r = py("get", p, "botA", "AIRLAB_PATH")
     assert r.returncode != 0
     assert "legacy" in r.stderr.lower() and "robots" in r.stderr
 
 
 def test_missing_system_is_quietly_absent(reg):
-    r = py("get", reg, "nope", "ws_path")
+    r = py("get", reg, "nope", "AIRLAB_PATH")
     assert r.returncode == 1 and r.stdout == ""
 
 
 # --- 2. env extraction: by name, not by position --------------------------- #
 
-BOOKKEEPING = ("ws_path", "robot_ssh", "last_updated")
+NOT_ENV = ("ws_path", "robot_ssh", "last_updated")
 
 
 @pytest.mark.parametrize("system", ["botA", "zz-last"])
-def test_env_excludes_bookkeeping_regardless_of_position(reg, system):
-    """The old positional trim leaked robot_ssh for every entry but the last."""
-    r = py("env", reg, system)
+def test_env_excludes_bookkeeping_regardless_of_position(legacy_reg, system):
+    """The old positional trim leaked robot_ssh for every entry but the last. A
+    record not yet migrated still carries the retired fields; they never leak."""
+    r = py("env", legacy_reg, system)
     assert r.returncode == 0
     keys = [line.split("=", 1)[0] for line in r.stdout.splitlines()]
-    for field in BOOKKEEPING:
+    for field in NOT_ENV:
         assert field not in keys, f"{field} leaked into airlab.env for {system}"
     assert "ROS_DOMAIN_ID" in keys
 
@@ -216,9 +229,41 @@ def test_read_env_from_yaml_writes_an_env_file(tmp_path, reg):
     assert r.returncode == 0
     lines = out.read_text().splitlines()
     assert "ROS_DOMAIN_ID=10" in lines
-    assert not [l for l in lines if l.split("=", 1)[0] in BOOKKEEPING]
+    assert not [l for l in lines if l.split("=", 1)[0] in NOT_ENV]
 
 
 def test_read_env_from_yaml_fails_on_a_missing_file(tmp_path):
     r = sh(f'read_env_from_yaml "{tmp_path}/nope.yaml" botA "{tmp_path}/out"')
     assert r.returncode != 0
+
+
+# --- 4. retired fields: ws_path / robot_ssh -------------------------------- #
+
+def test_migrate_drops_retired_fields_and_keeps_the_rest(legacy_reg):
+    r = py("migrate", legacy_reg)
+    assert r.returncode == 0 and "dropped 4" in r.stdout
+    text = legacy_reg.read_text()
+    assert "ws_path" not in text and "robot_ssh" not in text
+    assert text == SAMPLE, "everything but the retired fields is byte-identical"
+
+
+def test_migrate_is_idempotent(reg):
+    before = reg.read_text()
+    r = py("migrate", reg)
+    assert r.returncode == 0 and "nothing to migrate" in r.stdout
+    assert reg.read_text() == before
+
+
+def test_any_write_drops_retired_fields_file_wide(legacy_reg):
+    assert py("set", legacy_reg, "botA", "NEWKEY", "v").returncode == 0
+    data = yaml.safe_load(legacy_reg.read_text())
+    for system in ("botA", "zz-last"):
+        assert "ws_path" not in data[system] and "robot_ssh" not in data[system]
+    assert data["zz-last"]["AIRLAB_PATH"] == "/ws"
+
+
+@pytest.mark.parametrize("field", ["ws_path", "robot_ssh"])
+def test_set_refuses_a_retired_field(reg, field):
+    r = py("set", reg, "botA", field, "x")
+    assert r.returncode != 0 and "retired" in r.stderr
+    assert field not in reg.read_text()

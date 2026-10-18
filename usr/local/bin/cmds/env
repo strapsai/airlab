@@ -126,17 +126,17 @@ resolve_remote() {
     SSHPASS_PREFIX=()
     [[ -n "$robot_password" ]] && SSHPASS_PREFIX=(sshpass -p "$robot_password")
 
-    # The machine's workspace root comes from the record. A system that is in
+    # The machine's workspace root is its recorded AIRLAB_PATH. A system that is in
     # robots.yaml but not yet in robot_info.yaml (a freshly registered machine)
     # falls back to the documented default rather than failing outright.
-    local ws_path
-    if ws_path="$(robot_info_get "$LOCAL_ROBOT_INFO" "$system" ws_path)" && [[ -n "$ws_path" ]]; then
+    local ws_root
+    if ws_root="$(robot_info_get "$LOCAL_ROBOT_INFO" "$system" AIRLAB_PATH)" && [[ -n "$ws_root" ]]; then
         :
     else
-        ws_path="\$HOME/airlab_ws"
-        log_warn "No ws_path recorded for '$system'; assuming \$HOME/airlab_ws on the machine."
+        ws_root="\$HOME/airlab_ws"
+        log_warn "No AIRLAB_PATH recorded for '$system'; assuming \$HOME/airlab_ws on the machine."
     fi
-    REMOTE_ENV="$ws_path/airlab.env"
+    REMOTE_ENV="$ws_root/airlab.env"
 }
 
 remote_ssh() { "${SSHPASS_PREFIX[@]}" ssh -o StrictHostKeyChecking=no -p "${SSH_PORT:-22}" "$@"; }
@@ -252,12 +252,15 @@ cmd_sync_to() {
     else
         cp "$current" "$merged"
     fi
+    # --raw: env_file_set quotes each value itself. The default `env` output is
+    # already shell-quoted, and staging that wrapped every non-token value twice
+    # (`KEY="\"a b\""`), growing by one layer of escapes on each sync.
     local key value line
     while IFS= read -r line; do
         key="${line%%=*}"; value="${line#*=}"
         env_file_set "$merged" "$key" "$value" \
             || error_exit "Could not stage $key"
-    done < <(python3 "$ROBOT_INFO_PY" env "$LOCAL_ROBOT_INFO" "$system")
+    done < <(python3 "$ROBOT_INFO_PY" env "$LOCAL_ROBOT_INFO" "$system" --raw)
 
     if diff -q "$current" "$merged" >/dev/null 2>&1; then
         log_info "$REMOTE_SSH:$REMOTE_ENV already matches the record; nothing to do."

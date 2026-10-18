@@ -64,8 +64,8 @@ update_robot_info() {
 
 # Write a system's ENVIRONMENT variables to <output_file> as KEY=VALUE lines.
 #
-# Only environment variables: `ws_path`, `robot_ssh` and `last_updated` are
-# bookkeeping and are excluded by name. The previous implementation trimmed the tail
+# Only environment variables: `last_updated` (bookkeeping) and the retired
+# `ws_path` / `robot_ssh` are excluded by name. The previous implementation trimmed the tail
 # of the entry positionally (two blind `sed '$d'`), so what it emitted depended on
 # where the system sat in the file — `robot_ssh` leaked into airlab.env for every
 # entry except the last one, and a field added after `last_updated` would have been
